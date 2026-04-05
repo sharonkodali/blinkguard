@@ -1,0 +1,10 @@
+{
+  "name": "BlinkGuard — Drive Safe",
+  "short_name": "BlinkGuard",
+  "description": "AI drowsy driving safety monitor",
+  "start_url": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#030712",
+  "theme_color": "#030712"
+}
