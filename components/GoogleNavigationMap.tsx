@@ -1,11 +1,10 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react';
-import { DirectionsRenderer, GoogleMap, useJsApiLoader } from '@react-google-maps/api';
+import { useCallback, useEffect, useState, type CSSProperties } from 'react';
+import { GoogleMap, Marker, Polyline, useJsApiLoader } from '@react-google-maps/api';
 import type { DrowsinessState } from '@/lib/drowsiness';
 
-/** Do not load `places` in the browser — legacy Places Autocomplete requires APIs many projects no longer enable. */
-const libraries: [] = [];
+const libraries: ('geometry')[] = ['geometry'];
 
 const containerStyle: CSSProperties = { width: '100%', height: '100%' };
 
@@ -18,6 +17,12 @@ type Props = {
   onRouteMetaChange?: (meta: RouteMeta | null) => void;
 };
 
+type RouteInfo = {
+  durationText: string;
+  distanceText: string;
+  firstInstruction: string;
+};
+
 export default function GoogleNavigationMap(props: Props) {
   const apiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY ?? '';
   if (!apiKey.trim()) {
@@ -26,7 +31,7 @@ export default function GoogleNavigationMap(props: Props) {
         <p className="gnw-missing-title">Maps not configured</p>
         <p className="gnw-missing-text">
           Add <code>NEXT_PUBLIC_GOOGLE_MAPS_API_KEY</code> to <code>.env.local</code>. Enable <strong>Maps JavaScript API</strong>{' '}
-          and <strong>Directions API</strong> on that key (Geocoding is included for address search). Restart the dev server.
+          and <strong>Routes API</strong> on that key. Restart the dev server.
         </p>
       </div>
     );
@@ -42,18 +47,13 @@ function GoogleNavigationInner({ drowsinessState, onRouteMetaChange, apiKey }: P
   });
 
   const [map, setMap] = useState<google.maps.Map | null>(null);
-  const [directions, setDirections] = useState<google.maps.DirectionsResult | null>(null);
+  const [encodedPolyline, setEncodedPolyline] = useState<string | null>(null);
+  const [routePath, setRoutePath] = useState<google.maps.LatLngLiteral[] | null>(null);
+  const [routeInfo, setRouteInfo] = useState<RouteInfo | null>(null);
   const [userPos, setUserPos] = useState<google.maps.LatLngLiteral | null>(null);
   const [destText, setDestText] = useState('');
   const [navError, setNavError] = useState<string | null>(null);
   const [isRouting, setIsRouting] = useState(false);
-
-  const directionsServiceRef = useRef<google.maps.DirectionsService | null>(null);
-
-  useEffect(() => {
-    if (!isLoaded) return;
-    directionsServiceRef.current = new google.maps.DirectionsService();
-  }, [isLoaded]);
 
   useEffect(() => {
     if (!navigator.geolocation) return;
@@ -73,19 +73,39 @@ function GoogleNavigationInner({ drowsinessState, onRouteMetaChange, apiKey }: P
   const center = userPos ?? defaultCenter;
 
   useEffect(() => {
-    if (!map || !userPos || directions) return;
+    if (!isLoaded || !encodedPolyline || !window.google?.maps?.geometry?.encoding) return;
+    try {
+      const path = google.maps.geometry.encoding.decodePath(encodedPolyline);
+      setRoutePath(path.map((p) => ({ lat: p.lat(), lng: p.lng() })));
+    } catch {
+      setNavError('Could not decode route polyline.');
+      setEncodedPolyline(null);
+      setRouteInfo(null);
+    }
+  }, [isLoaded, encodedPolyline]);
+
+  useEffect(() => {
+    if (!map || !routePath?.length) return;
+    const bounds = new google.maps.LatLngBounds();
+    routePath.forEach((p) => bounds.extend(p));
+    map.fitBounds(bounds);
+  }, [map, routePath]);
+
+  useEffect(() => {
+    if (!map || !userPos || routePath?.length) return;
     map.panTo(userPos);
-  }, [map, userPos, directions]);
+  }, [map, userPos, routePath]);
 
   const clearRoute = useCallback(() => {
-    setDirections(null);
+    setEncodedPolyline(null);
+    setRoutePath(null);
+    setRouteInfo(null);
     setDestText('');
     setNavError(null);
     onRouteMetaChange?.(null);
   }, [onRouteMetaChange]);
 
-  const computeRoute = useCallback(() => {
-    if (!isLoaded || !directionsServiceRef.current) return;
+  const computeRoute = useCallback(async () => {
     const destination = destText.trim();
     if (!userPos) {
       setNavError('Waiting for GPS… Allow location access for turn-by-turn.');
@@ -97,41 +117,60 @@ function GoogleNavigationInner({ drowsinessState, onRouteMetaChange, apiKey }: P
     }
     setIsRouting(true);
     setNavError(null);
-    directionsServiceRef.current.route(
-      {
-        origin: userPos,
-        destination,
-        travelMode: google.maps.TravelMode.DRIVING,
-        provideRouteAlternatives: false,
-      },
-      (result, status) => {
-        setIsRouting(false);
-        if (status !== 'OK' || !result) {
-          setNavError('Could not build a driving route. Check the address and your Directions API billing.');
-          setDirections(null);
-          onRouteMetaChange?.(null);
-          return;
-        }
-        setDirections(result);
-        const leg = result.routes[0]?.legs[0];
-        onRouteMetaChange?.({
-          destinationLabel: leg?.end_address ?? destination,
-          originLabel: leg?.start_address,
-        });
-      },
-    );
-  }, [isLoaded, userPos, destText, onRouteMetaChange]);
+    setRoutePath(null);
+    setRouteInfo(null);
+    setEncodedPolyline(null);
 
-  useEffect(() => {
-    if (!map || !directions) return;
-    const b = directions.routes[0]?.bounds;
-    if (b) map.fitBounds(b);
-  }, [map, directions]);
+    try {
+      const res = await fetch('/api/maps/compute-route', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ origin: userPos, destination }),
+      });
+      const data = (await res.json()) as {
+        error?: string;
+        hint?: string;
+        encodedPolyline?: string;
+        durationText?: string;
+        distanceText?: string;
+        firstInstruction?: string;
+        originLabel?: string;
+        destinationLabel?: string;
+      };
 
-  const nextInstruction =
-    directions?.routes[0]?.legs[0]?.steps[0]?.instructions?.replace(/<[^>]+>/g, '') ?? null;
-  const eta = directions?.routes[0]?.legs[0]?.duration?.text;
-  const dist = directions?.routes[0]?.legs[0]?.distance?.text;
+      if (!res.ok) {
+        const msg = [data.error, data.hint].filter(Boolean).join(' — ');
+        setNavError(
+          msg ||
+            'Could not compute route. Enable Routes API and use a server key (see .env.example).',
+        );
+        onRouteMetaChange?.(null);
+        return;
+      }
+
+      if (!data.encodedPolyline) {
+        setNavError('No route returned.');
+        onRouteMetaChange?.(null);
+        return;
+      }
+
+      setEncodedPolyline(data.encodedPolyline);
+      setRouteInfo({
+        durationText: data.durationText ?? '—',
+        distanceText: data.distanceText ?? '—',
+        firstInstruction: data.firstInstruction ?? '',
+      });
+      onRouteMetaChange?.({
+        destinationLabel: data.destinationLabel ?? destination,
+        originLabel: data.originLabel,
+      });
+    } catch {
+      setNavError('Network error while computing route.');
+      onRouteMetaChange?.(null);
+    } finally {
+      setIsRouting(false);
+    }
+  }, [userPos, destText, onRouteMetaChange]);
 
   const ring =
     drowsinessState === 'danger'
@@ -158,10 +197,13 @@ function GoogleNavigationInner({ drowsinessState, onRouteMetaChange, apiKey }: P
     );
   }
 
+  const start = routePath?.[0];
+  const end = routePath?.length ? routePath[routePath.length - 1] : null;
+
   return (
     <>
       <style>{`
-        .gnw-shell { position: relative; width: 100%; height: 100%; min-height: 420px; border-radius: var(--radius, 12px); overflow: hidden; transition: box-shadow 0.35s; }
+        .gnw-shell { position: relative; width: 100%; height: 100%; min-height: 280px; min-height: max(42dvh, 260px); border-radius: var(--radius, 12px); overflow: hidden; transition: box-shadow 0.35s; touch-action: pan-x pan-y pinch-zoom; }
         .gnw-ring-warn { box-shadow: 0 0 0 2px rgba(180, 160, 220, 0.5); }
         .gnw-ring-danger { box-shadow: 0 0 0 2px rgba(200, 120, 180, 0.65); }
         .gnw-missing { height: 100%; min-height: 420px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; padding: 24px; text-align: center; background: var(--surface, #1a1a2e); border: 1px dashed var(--border, #333); border-radius: var(--radius, 12px); }
@@ -210,16 +252,27 @@ function GoogleNavigationInner({ drowsinessState, onRouteMetaChange, apiKey }: P
             streetViewControl: false,
             fullscreenControl: true,
             zoomControl: true,
+            gestureHandling: 'greedy',
           }}
         >
-          {directions && (
-            <DirectionsRenderer
-              directions={directions}
+          {userPos && !routePath?.length && (
+            <Marker position={userPos} title="You" />
+          )}
+          {routePath && routePath.length > 1 && (
+            <Polyline
+              path={routePath}
               options={{
-                suppressMarkers: false,
-                polylineOptions: { strokeColor: '#6b8cff', strokeWeight: 5, strokeOpacity: 0.95 },
+                strokeColor: '#6b8cff',
+                strokeWeight: 5,
+                strokeOpacity: 0.95,
               }}
             />
+          )}
+          {start && end && routePath && routePath.length > 1 && (
+            <>
+              <Marker position={start} label="A" />
+              <Marker position={end} label="B" />
+            </>
           )}
         </GoogleMap>
 
@@ -232,9 +285,11 @@ function GoogleNavigationInner({ drowsinessState, onRouteMetaChange, apiKey }: P
               placeholder="Destination address or place (e.g. 1600 Amphitheatre Pkwy, Mountain View)"
               autoComplete="street-address"
             />
-            <p className="gnw-hint">Uses Directions API only — no legacy Places Autocomplete. Type a full address or well-known place name.</p>
+            <p className="gnw-hint">
+              Routing uses Google <strong>Routes API</strong> on the server (not legacy browser Directions). Enable Routes API on your key.
+            </p>
           </div>
-          <button type="button" className="gnw-btn gnw-btn-primary" onClick={computeRoute} disabled={isRouting}>
+          <button type="button" className="gnw-btn gnw-btn-primary" onClick={() => void computeRoute()} disabled={isRouting}>
             {isRouting ? 'Routing…' : 'Navigate'}
           </button>
           <button type="button" className="gnw-btn" onClick={clearRoute}>
@@ -244,14 +299,14 @@ function GoogleNavigationInner({ drowsinessState, onRouteMetaChange, apiKey }: P
 
         {navError && <div className="gnw-err">{navError}</div>}
 
-        {directions && (nextInstruction || eta) && (
+        {routeInfo && (routeInfo.firstInstruction || routeInfo.durationText) && (
           <div className="gnw-turn">
             <div className="gnw-turn-label">NEXT STEP</div>
-            {nextInstruction && <p className="gnw-turn-text">{nextInstruction}</p>}
+            {routeInfo.firstInstruction && <p className="gnw-turn-text">{routeInfo.firstInstruction}</p>}
             <div className="gnw-turn-meta">
-              {eta && <span>{eta}</span>}
-              {eta && dist && ' · '}
-              {dist && <span>{dist}</span>}
+              {routeInfo.durationText && <span>{routeInfo.durationText}</span>}
+              {routeInfo.durationText && routeInfo.distanceText && ' · '}
+              {routeInfo.distanceText && <span>{routeInfo.distanceText}</span>}
             </div>
           </div>
         )}

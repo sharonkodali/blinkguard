@@ -30,6 +30,7 @@ const GoogleNavigationMap = dynamic(
   },
 );
 import { fetchSessionSummaryAI, type SessionSummaryAI } from '@/lib/agents';
+import { formatCameraError, getUserMediaFrontCamera } from '@/lib/camera';
 import { computeEAR, computeMAR, isEyeClosed, isYawning, getDrowsinessState, FRAMES_DANGER } from '@/lib/drowsiness';
 import type { DrowsinessState } from '@/lib/drowsiness';
 
@@ -121,23 +122,28 @@ export default function Monitor() {
 
   const startCamera = useCallback(async () => {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 } },
-        audio: false,
-      });
+      const stream = await getUserMediaFrontCamera();
       if (!videoRef.current) return;
-      videoRef.current.srcObject = stream;
-      videoRef.current.onloadedmetadata = async () => {
+      const v = videoRef.current;
+      v.setAttribute('playsinline', '');
+      v.setAttribute('webkit-playsinline', '');
+      v.playsInline = true;
+      v.muted = true;
+      v.srcObject = stream;
+      v.onloadedmetadata = async () => {
         if (!videoRef.current) return;
         try {
           await videoRef.current.play();
           setIsStarted(true);
           setMainTab('live');
           setTimeout(() => runMediaPipe(), 100);
-        } catch (e) { console.error('Play error:', e); }
+        } catch (e) {
+          console.error('Play error:', e);
+          alert('Could not start video playback. On iPhone, try tapping Start again.');
+        }
       };
-    } catch {
-      alert('Camera permission denied. Please allow camera access and reload.');
+    } catch (err) {
+      alert(formatCameraError(err));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- runMediaPipe is declared below
   }, []);
@@ -252,11 +258,23 @@ export default function Monitor() {
   return (
     <>
       <style>{`
-        .mon { min-height: 100vh; display: flex; flex-direction: column; background: var(--bg); color: var(--text); overflow: hidden; }
+        .mon {
+          min-height: 100vh;
+          min-height: 100dvh;
+          height: 100dvh;
+          max-height: 100dvh;
+          display: flex;
+          flex-direction: column;
+          background: var(--bg);
+          color: var(--text);
+          overflow: hidden;
+          padding-bottom: env(safe-area-inset-bottom);
+          box-sizing: border-box;
+        }
 
         .mon-top {
           flex-shrink: 0; display: flex; align-items: center; justify-content: center;
-          padding: 14px 20px 10px; gap: 16px;
+          padding: calc(10px + env(safe-area-inset-top)) 20px 10px; gap: 16px;
         }
         .mon-nav {
           display: inline-flex; align-items: center; padding: 4px;
@@ -280,12 +298,15 @@ export default function Monitor() {
 
         .mon-body { flex: 1; display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(300px, 0.85fr); gap: 20px; padding: 0 20px 20px; min-height: 0; overflow: hidden; }
         @media (max-width: 960px) {
-          .mon-body { grid-template-columns: 1fr; overflow-y: auto; }
+          .mon-body { grid-template-columns: 1fr; overflow-y: auto; -webkit-overflow-scrolling: touch; }
         }
 
-        .mon-cam-col { display: flex; flex-direction: column; gap: 14px; min-width: 0; min-height: 0; }
+        .mon-cam-col { display: flex; flex-direction: column; gap: 14px; min-width: 0; min-height: 0; flex: 1; }
         .mon-map-shell {
-          position: relative; flex: 1; min-height: 320px; border-radius: var(--radius);
+          position: relative; flex: 1;
+          min-height: 320px;
+          min-height: max(45dvh, 280px);
+          border-radius: var(--radius);
           overflow: hidden; border: 1px solid var(--border); background: var(--surface);
           display: flex; flex-direction: column;
         }

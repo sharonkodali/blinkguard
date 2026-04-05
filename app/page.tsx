@@ -13,6 +13,7 @@ import {
   FRAMES_DANGER,
 } from '@/lib/drowsiness';
 import type { DrowsinessState } from '@/lib/drowsiness';
+import { formatCameraError, getUserMediaFrontCamera } from '@/lib/camera';
 
 // ─── Eye landmark indices to highlight ───────────────────────────────────────
 const LEFT_EYE_IDX  = [33,7,163,144,145,153,154,155,133,246,161,160,159,158,157,173];
@@ -202,35 +203,28 @@ export default function Home() {
   // ─── Start camera ──────────────────────────────────────────────────────────
   const startCamera = useCallback(async () => {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { 
-          facingMode: 'user', 
-          width: { ideal: 640 }, 
-          height: { ideal: 480 }
-        },
-        audio: false,
-      });
+      const stream = await getUserMediaFrontCamera();
       if (!videoRef.current) return;
-      
-      // Ensure video element is set up correctly
-      videoRef.current.srcObject = stream;
-      
-      // Wait for video to be loadable before playing
-      videoRef.current.onloadedmetadata = async () => {
-        if (videoRef.current) {
-          try {
-            await videoRef.current.play();
-            setIsStarted(true);
-            // Small delay to ensure video is playing
-            setTimeout(() => runMediaPipe(), 100);
-          } catch (playErr) {
-            console.error('Play error:', playErr);
-          }
+      const v = videoRef.current;
+      v.setAttribute('playsinline', '');
+      v.setAttribute('webkit-playsinline', '');
+      v.playsInline = true;
+      v.muted = true;
+      v.srcObject = stream;
+      v.onloadedmetadata = async () => {
+        if (!videoRef.current) return;
+        try {
+          await videoRef.current.play();
+          setIsStarted(true);
+          setTimeout(() => runMediaPipe(), 100);
+        } catch (playErr) {
+          console.error('Play error:', playErr);
+          alert('Could not play video. On iPhone, tap Start again after allowing camera.');
         }
       };
     } catch (err) {
       console.error('Camera access error:', err);
-      alert('Camera permission denied. Please allow camera access and reload.');
+      alert(formatCameraError(err));
     }
   }, [runMediaPipe]);
 
@@ -251,7 +245,15 @@ export default function Home() {
   return (
     <>
       <style>{`
-        .page-main { width: 100vw; height: 100vh; background: var(--bg); color: var(--text); display: flex; flex-direction: column; align-items: center; padding: 0.5rem 1rem; overflow: hidden; }
+        .page-main {
+          width: 100%;
+          max-width: 100vw;
+          min-height: 100dvh;
+          box-sizing: border-box;
+          padding: calc(0.5rem + env(safe-area-inset-top)) 1rem calc(0.5rem + env(safe-area-inset-bottom));
+          background: var(--bg); color: var(--text); display: flex; flex-direction: column; align-items: center;
+          overflow: hidden;
+        }
         .page-header { width: 100%; max-width: 520px; display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; flex-wrap: wrap; }
         .page-dash-link {
           font-size: 0.75rem; font-weight: 600; padding: 0.35rem 0.75rem; border-radius: var(--radius-sm);
@@ -264,7 +266,13 @@ export default function Home() {
         .page-status-text { font-size: 0.75rem; color: var(--text-faint); }
         .page-recal-btn { font-size: 0.75rem; padding: 0.25rem 0.5rem; border-radius: var(--radius-sm); background: var(--surface2); color: var(--text-muted); border: 1px solid var(--border); cursor: pointer; transition: all 0.2s; }
         .page-recal-btn:hover { background: var(--surface3); color: var(--text); }
-        .page-camera-container { position: relative; border-radius: var(--radius); overflow: hidden; border: 2px solid; transition: border-color 0.3s; margin-top: 0.5rem; width: 520px; height: 390px; }
+        .page-camera-container {
+          position: relative; border-radius: var(--radius); overflow: hidden; border: 2px solid;
+          transition: border-color 0.3s; margin-top: 0.5rem;
+          width: min(520px, 100%); max-width: 100%;
+          aspect-ratio: 4 / 3;
+          max-height: min(390px, 55dvh);
+        }
         .page-camera-ok      { border-color: var(--blue-soft); }
         .page-camera-warning { border-color: var(--amber); }
         .page-camera-danger  { border-color: var(--red); }
