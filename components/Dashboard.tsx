@@ -39,8 +39,9 @@ export default function Dashboard({ ear, isDrowsy, isYawning = false }: Dashboar
       const now = new Date();
       const timeStr = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
       setAlertLog(prev => {
-        const next = [
-          { id: Date.now(), time: timeStr, type: isDrowsy ? 'drowsy' : 'yawn', ear: parseFloat(ear.toFixed(3)) },
+        const alertType: 'drowsy' | 'yawn' = isDrowsy ? 'drowsy' : 'yawn';
+        const next: AlertLog[] = [
+          { id: Date.now(), time: timeStr, type: alertType, ear: parseFloat(ear.toFixed(3)) },
           ...prev,
         ].slice(0, 20);
         // compute alerts/hour
