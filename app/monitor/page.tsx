@@ -3,6 +3,8 @@ import { useRef, useEffect, useState, useCallback } from 'react';
 import StatusPanel from '@/components/StatusPanel';
 import AlertBanner from '@/components/AlertBanner';
 import AgentPanel from '@/components/AgentPanel';
+import NearbyStopsCard from '@/components/NearbyStopsCard';
+import { fetchSessionSummaryAI, type SessionSummaryAI } from '@/lib/agents';
 import { computeEAR, computeMAR, isEyeClosed, isYawning, getDrowsinessState, FRAMES_DANGER } from '@/lib/drowsiness';
 import type { DrowsinessState } from '@/lib/drowsiness';
 
@@ -25,7 +27,6 @@ export default function Monitor() {
   const [isStarted,       setIsStarted]       = useState(false);
   const [mainTab,         setMainTab]         = useState<MainTab>('live');
   const [ear,             setEar]             = useState(0);
-  const [mar,             setMar]             = useState(0);
   const [closedFrames,    setClosedFrames]    = useState(0);
   const [drowsinessState, setDrowsinessState] = useState<DrowsinessState>('awake');
   const [faceDetected,    setFaceDetected]    = useState(false);
@@ -34,10 +35,15 @@ export default function Monitor() {
   const [earSamples,      setEarSamples]      = useState(0);
   const [earSum,          setEarSum]          = useState(0);
   const [eclipseSoft,     setEclipseSoft]     = useState(false);
+  const [summaryAi,       setSummaryAi]       = useState<SessionSummaryAI | null>(null);
+  const [summaryAiLoading, setSummaryAiLoading] = useState(false);
 
-  const closedRef     = useRef(0);
-  const alertCooling  = useRef(false);
-  const lastAlertTime = useRef(0);
+  const closedRef      = useRef(0);
+  const alertCooling   = useRef(false);
+  const lastAlertTime  = useRef(0);
+  const prevMainTabRef = useRef<MainTab>(mainTab);
+  const summaryStatsRef = useRef({ sessionTime: 0, alertCount: 0, earSum: 0, earSamples: 0 });
+  summaryStatsRef.current = { sessionTime, alertCount, earSum, earSamples };
 
   useEffect(() => {
     if (!isStarted) return;
@@ -49,6 +55,33 @@ export default function Monitor() {
     document.documentElement.dataset.eclipseSoft = eclipseSoft ? 'true' : 'false';
     return () => { delete document.documentElement.dataset.eclipseSoft; };
   }, [eclipseSoft]);
+
+  useEffect(() => {
+    const enteredSummary = mainTab === 'summary' && prevMainTabRef.current !== 'summary';
+    prevMainTabRef.current = mainTab;
+    if (!enteredSummary || !isStarted) return;
+
+    let cancelled = false;
+    setSummaryAiLoading(true);
+    const { sessionTime: sec, alertCount: ac, earSum: es, earSamples: esmp } = summaryStatsRef.current;
+    const ae = esmp > 0 ? es / esmp : 0;
+    const sc = Math.max(0, Math.min(100, 100 - ac * 6));
+
+    fetchSessionSummaryAI({
+      sessionSeconds: sec,
+      alertCount: ac,
+      avgEar: ae,
+      safetyScore: sc,
+    })
+      .then((data) => {
+        if (!cancelled) setSummaryAi(data);
+      })
+      .finally(() => {
+        if (!cancelled) setSummaryAiLoading(false);
+      });
+
+    return () => { cancelled = true; };
+  }, [mainTab, isStarted]);
 
   const triggerAlert = useCallback(() => {
     const now = Date.now();
@@ -80,6 +113,7 @@ export default function Monitor() {
     } catch {
       alert('Camera permission denied. Please allow camera access and reload.');
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- runMediaPipe is declared below
   }, []);
 
   const runMediaPipe = useCallback(async () => {
@@ -116,7 +150,6 @@ export default function Monitor() {
           const currentEAR = computeEAR(lm);
           const currentMAR = computeMAR(lm);
           setEar(parseFloat(currentEAR.toFixed(3)));
-          setMar(parseFloat(currentMAR.toFixed(3)));
           setEarSum(prev => prev + currentEAR);
           setEarSamples(n => n + 1);
 
@@ -177,10 +210,11 @@ export default function Monitor() {
     setEarSamples(0);
     setEarSum(0);
     setEar(0);
-    setMar(0);
     setClosedFrames(0);
     setDrowsinessState('awake');
     setMainTab('live');
+    setSummaryAi(null);
+    setSummaryAiLoading(false);
     if (videoRef.current?.srcObject) {
       const tracks = (videoRef.current.srcObject as MediaStream).getTracks();
       tracks.forEach(t => t.stop());
@@ -295,6 +329,13 @@ export default function Monitor() {
           font-family: inherit; transition: border-color 0.2s, opacity 0.2s;
         }
         .mon-sum-btn:hover { border-color: var(--blue-soft); }
+
+        .mon-sum-ai { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px 18px; box-shadow: var(--shadow-card); }
+        .mon-sum-ai-label { font-size: 0.52rem; letter-spacing: 0.14em; color: var(--text-faint); margin-bottom: 8px; font-weight: 600; }
+        .mon-sum-ai-headline { font-size: 1rem; font-weight: 600; color: var(--text); line-height: 1.35; margin: 0 0 12px; }
+        .mon-sum-ai-tips { margin: 0; padding-left: 1.1rem; color: var(--text-muted); font-size: 0.78rem; line-height: 1.65; }
+        .mon-sum-ai-close { font-size: 0.76rem; color: var(--blue-soft); margin-top: 14px; line-height: 1.5; }
+        .mon-sum-ai-loading { font-size: 0.78rem; color: var(--text-faint); }
       `}</style>
 
       <div className="mon">
@@ -419,6 +460,33 @@ export default function Monitor() {
                     <div className="mon-sum-card-v">{isStarted && earSamples > 0 ? avgEar.toFixed(2) : '—'}</div>
                   </div>
                 </div>
+                {isStarted && (
+                  <div className="mon-sum-ai">
+                    <div className="mon-sum-ai-label">AI SESSION BRIEF</div>
+                    {summaryAiLoading && (
+                      <p className="mon-sum-ai-loading">Generating your summary…</p>
+                    )}
+                    {!summaryAiLoading && summaryAi && (
+                      <>
+                        <p className="mon-sum-ai-headline">{summaryAi.headline}</p>
+                        <ul className="mon-sum-ai-tips">
+                          {summaryAi.tips.map((t, i) => (
+                            <li key={i}>{t}</li>
+                          ))}
+                        </ul>
+                        <p className="mon-sum-ai-close">{summaryAi.closingLine}</p>
+                      </>
+                    )}
+                    {!summaryAiLoading && !summaryAi && (
+                      <p className="mon-sum-ai-loading">Open Summary again to load AI insights.</p>
+                    )}
+                  </div>
+                )}
+                {isStarted && (
+                  <div style={{ marginTop: 4 }}>
+                    <NearbyStopsCard />
+                  </div>
+                )}
                 <div className="mon-sum-rec">
                   <h3>Recommendations</h3>
                   <ul>
@@ -439,7 +507,6 @@ export default function Monitor() {
               <>
                 <StatusPanel
                   ear={ear}
-                  mar={mar}
                   closedFrames={closedFrames}
                   drowsinessState={drowsinessState}
                   faceDetected={faceDetected}

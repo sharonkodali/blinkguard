@@ -25,6 +25,8 @@ let personalMARThreshold = DEFAULT_MAR_THRESHOLD;
 
 export type DrowsinessState = 'awake' | 'warning' | 'danger';
 
+export type FaceLandmark = { x: number; y: number; z?: number };
+
 export interface CalibrationData {
   eyesOpenEARValues: number[];
   eyesClosedEARValues: number[];
@@ -34,12 +36,12 @@ export interface CalibrationData {
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
-function dist2D(a: any, b: any): number {
-  return Math.sqrt(Math.pow(a.x - b.x, 2) + Math.pow(a.y - b.y, 2));
+function dist2D(a: FaceLandmark, b: FaceLandmark): number {
+  return Math.sqrt((a.x - b.x) ** 2 + (a.y - b.y) ** 2);
 }
 
 // ─── Eye Aspect Ratio ────────────────────────────────────────────────────────
-export function computeEAR(lm: any[]): number {
+export function computeEAR(lm: FaceLandmark[]): number {
   const leftEAR =
     (dist2D(lm[L_TOP1], lm[L_BOT1]) + dist2D(lm[L_TOP2], lm[L_BOT2])) /
     (2 * dist2D(lm[L_LEFT], lm[L_RIGHT]));
@@ -52,7 +54,7 @@ export function computeEAR(lm: any[]): number {
 }
 
 // ─── Mouth Aspect Ratio (yawn) ────────────────────────────────────────────────
-export function computeMAR(lm: any[]): number {
+export function computeMAR(lm: FaceLandmark[]): number {
   const vertical   = dist2D(lm[M_TOP],  lm[M_BOT]);
   const horizontal = dist2D(lm[M_LEFT], lm[M_RIGHT]);
   return vertical / horizontal;

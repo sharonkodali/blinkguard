@@ -1,5 +1,6 @@
 'use client';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, startTransition } from 'react';
+import NearbyStopsCard from '@/components/NearbyStopsCard';
 import { runDrowsyAgents, checkTraffic, speakAlert, vibrateAlert, type AgentResponse } from '../lib/agents';
 
 interface AgentPanelProps {
@@ -28,23 +29,23 @@ export default function AgentPanel({ isDrowsy, alertCount }: AgentPanelProps) {
 
   // Trigger agent on new drowsy event
   useEffect(() => {
-    if (isDrowsy && alertCount > lastAlertCount) {
+    if (!isDrowsy || alertCount <= lastAlertCount) return;
+
+    startTransition(() => {
       setLastAlertCount(alertCount);
       setStatus('loading');
       setSpoken(false);
+    });
 
-      runDrowsyAgents(alertCount)
-        .then(res => {
-          setResponse(res);
-          setStatus('done');
-
-          // Voice + vibrate
-          speakAlert(res.voiceCoach);
-          vibrateAlert();
-          setSpoken(true);
-        })
-        .catch(() => setStatus('error'));
-    }
+    runDrowsyAgents(alertCount)
+      .then(res => {
+        setResponse(res);
+        setStatus('done');
+        speakAlert(res.voiceCoach);
+        vibrateAlert();
+        setSpoken(true);
+      })
+      .catch(() => setStatus('error'));
   }, [isDrowsy, alertCount, lastAlertCount]);
 
   const handleManualTest = () => {
@@ -85,6 +86,8 @@ export default function AgentPanel({ isDrowsy, alertCount }: AgentPanelProps) {
             <div className="ap-traffic-text">{trafficTick}</div>
           </div>
         </div>
+
+        <NearbyStopsCard />
 
         {/* Agent Responses */}
         {status === 'loading' && (

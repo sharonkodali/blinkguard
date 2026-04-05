@@ -1,11 +1,13 @@
-/** @type {import('next').NextConfig} */
-const nextConfig = {
+import type { NextConfig } from 'next';
+
+const nextConfig: NextConfig = {
   // Empty turbopack config to silence warnings
   turbopack: {},
 
   // Suppress MediaPipe "Critical dependency" warnings in webpack
-  webpack: (config: any, { isServer }: { isServer: boolean }) => {
+  webpack(config, { isServer }) {
     if (!isServer) {
+      config.resolve = config.resolve ?? {};
       config.resolve.fallback = {
         ...config.resolve.fallback,
         fs: false,

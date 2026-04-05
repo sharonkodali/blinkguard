@@ -5,7 +5,6 @@ import { FRAMES_DANGER } from '@/lib/drowsiness';
 
 interface Props {
   ear: number;
-  mar: number;
   closedFrames: number;
   drowsinessState: DrowsinessState;
   faceDetected: boolean;
@@ -22,7 +21,6 @@ function formatHMS(totalSec: number) {
 
 export default function StatusPanel({
   ear,
-  mar: _mar,
   closedFrames,
   drowsinessState,
   faceDetected,

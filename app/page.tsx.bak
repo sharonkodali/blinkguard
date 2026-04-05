@@ -1,0 +1,200 @@
+'use client';
+import Link from 'next/link';
+
+export default function Home() {
+  const features = [
+    {
+      icon: '🎯',
+      title: 'Real-time Detection',
+      description: 'AI-powered eye closure and yawning detection with sub-second accuracy',
+    },
+    {
+      icon: '🔊',
+      title: 'Smart Alerts',
+      description: 'Voice notifications, haptic feedback, and visual warnings to keep you safe',
+    },
+    {
+      icon: '🗺️',
+      title: 'AI Agents',
+      description: 'Get intelligent recommendations for rest stops and traffic-aware safety tips',
+    },
+    {
+      icon: '📊',
+      title: 'Session History',
+      description: 'Track your drowsiness patterns and improve your driving habits over time',
+    },
+    {
+      icon: '🚗',
+      title: 'Lightweight',
+      description: 'Runs locally on your device with no cloud uploads or privacy concerns',
+    },
+    {
+      icon: '⚡',
+      title: 'Always-On',
+      description: 'Monitor during every drive with minimal battery impact',
+    },
+  ];
+
+  const stats = [
+    { label: 'Sessions Tracked', value: '0', icon: '📈' },
+    { label: 'Total Drive Time', value: '0h', icon: '⏱️' },
+    { label: 'Alerts Detected', value: '0', icon: '🔔' },
+  ];
+
+  return (
+    <div className="min-h-screen" style={{ backgroundColor: 'var(--black-base)' }}>
+      {/* Hero Section */}
+      <section className="py-20 px-8">
+        <div className="max-w-6xl mx-auto">
+          <div className="text-center mb-16">
+            <h1
+              className="text-6xl md:text-7xl font-black mb-4 tracking-tight"
+              style={{ color: 'var(--gold-primary)' }}
+            >
+              Drive Safely
+            </h1>
+            <p className="text-2xl md:text-3xl mb-8" style={{ color: 'rgba(255,255,255,0.8)' }}>
+              AI-powered drowsiness detection to prevent accidents
+            </p>
+            <Link href="/monitor">
+              <button
+                className="px-8 py-4 rounded-lg font-bold text-lg transition-all hover:scale-105"
+                style={{
+                  backgroundColor: 'var(--gold-primary)',
+                  color: 'var(--black-base)',
+                }}
+              >
+                Start Monitoring Now →
+              </button>
+            </Link>
+          </div>
+
+          {/* Stats */}
+          <div className="grid grid-cols-3 gap-6 mb-20">
+            {stats.map((stat, i) => (
+              <div
+                key={i}
+                className="rounded-xl p-8 text-center border"
+                style={{
+                  backgroundColor: 'var(--black-card)',
+                  borderColor: 'var(--black-secondary)',
+                }}
+              >
+                <div className="text-4xl mb-2">{stat.icon}</div>
+                <div
+                  className="text-4xl font-bold mb-2"
+                  style={{ color: 'var(--gold-primary)' }}
+                >
+                  {stat.value}
+                </div>
+                <p style={{ color: 'rgba(255,255,255,0.6)' }}>{stat.label}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* Features Section */}
+      <section className="py-20 px-8 border-t" style={{ borderColor: 'var(--black-secondary)' }}>
+        <div className="max-w-6xl mx-auto">
+          <h2
+            className="text-5xl font-bold mb-16 text-center"
+            style={{ color: 'var(--gold-primary)' }}
+          >
+            Features
+          </h2>
+
+          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-8">
+            {features.map((feature, i) => (
+              <div
+                key={i}
+                className="rounded-xl p-8 border transition-all hover:border-opacity-100 hover:bg-opacity-50"
+                style={{
+                  backgroundColor: 'rgba(26, 20, 16, 0.5)',
+                  borderColor: 'var(--black-secondary)',
+                }}
+              >
+                <div className="text-4xl mb-4">{feature.icon}</div>
+                <h3
+                  className="text-xl font-bold mb-3"
+                  style={{ color: 'var(--gold-primary)' }}
+                >
+                  {feature.title}
+                </h3>
+                <p style={{ color: 'rgba(255,255,255,0.7)' }}>
+                  {feature.description}
+                </p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* How it Works */}
+      <section className="py-20 px-8 border-t" style={{ borderColor: 'var(--black-secondary)' }}>
+        <div className="max-w-6xl mx-auto">
+          <h2
+            className="text-5xl font-bold mb-16 text-center"
+            style={{ color: 'var(--gold-primary)' }}
+          >
+            How It Works
+          </h2>
+
+          <div className="grid md:grid-cols-4 gap-8">
+            {[
+              { step: '1', title: 'Start Monitor', desc: 'Grant camera access and begin' },
+              { step: '2', title: 'Real-time AI', desc: 'Eye closure detection begins' },
+              { step: '3', title: 'Smart Alerts', desc: 'Get notified of drowsiness' },
+              { step: '4', title: 'Stay Safe', desc: 'Pull over and rest' },
+            ].map((item, i) => (
+              <div key={i} className="text-center">
+                <div
+                  className="w-16 h-16 mx-auto rounded-full flex items-center justify-center font-bold text-2xl mb-4"
+                  style={{
+                    backgroundColor: 'var(--gold-primary)',
+                    color: 'var(--black-base)',
+                  }}
+                >
+                  {item.step}
+                </div>
+                <h4
+                  className="font-bold mb-2"
+                  style={{ color: 'var(--gold-primary)' }}
+                >
+                  {item.title}
+                </h4>
+                <p style={{ color: 'rgba(255,255,255,0.6)' }}>{item.desc}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* CTA Section */}
+      <section className="py-20 px-8 border-t" style={{ borderColor: 'var(--black-secondary)' }}>
+        <div className="max-w-2xl mx-auto text-center">
+          <h2
+            className="text-4xl font-bold mb-6"
+            style={{ color: 'var(--gold-primary)' }}
+          >
+            Ready to Drive Safely?
+          </h2>
+          <p className="text-xl mb-8" style={{ color: 'rgba(255,255,255,0.7)' }}>
+            Start your first monitoring session now and protect yourself from drowsy driving.
+          </p>
+          <Link href="/monitor">
+            <button
+              className="px-12 py-4 rounded-lg font-bold text-lg transition-all hover:scale-105"
+              style={{
+                backgroundColor: 'var(--gold-primary)',
+                color: 'var(--black-base)',
+              }}
+            >
+              Launch Monitor →
+            </button>
+          </Link>
+        </div>
+      </section>
+    </div>
+  );
+}

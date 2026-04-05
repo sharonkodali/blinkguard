@@ -1,23 +1,14 @@
-// lib/agents.ts
-// BlinkGuard AI Agents — Person B
-// Calls the /api/agent route (server-side Claude calls) for smart driver responses.
+// BlinkGuard AI agents — all model calls go through `/api/agent` (server: Vercel AI SDK).
 
-export interface AgentResponse {
-  traffic: string;
-  hotel: string;
-  voiceCoach: string;
-  pullOver: boolean;
-}
+import type { AgentResponse, SessionSummaryAI } from '@/lib/agent-types';
+import { fetchAgentJson } from '@/lib/fetch-ai';
 
-// ----- Main drowsy agent (calls Claude via API route) -----
+export type { AgentResponse, SessionSummaryAI } from '@/lib/agent-types';
+export { AgentFetchError, fetchAgentJson } from '@/lib/fetch-ai';
+
 export async function runDrowsyAgents(alertCount: number): Promise<AgentResponse> {
   try {
-    const res = await fetch('/api/agent', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ alertCount, type: 'drowsy' }),
-    });
-    return await res.json();
+    return await fetchAgentJson<AgentResponse>({ alertCount, type: 'drowsy' });
   } catch {
     return {
       traffic: 'Unable to check traffic right now.',
@@ -28,22 +19,43 @@ export async function runDrowsyAgents(alertCount: number): Promise<AgentResponse
   }
 }
 
-// ----- Traffic-only agent (polled every 60s) -----
 export async function checkTraffic(): Promise<string> {
   try {
-    const res = await fetch('/api/agent', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ type: 'traffic' }),
-    });
-    const data = await res.json();
+    const data = await fetchAgentJson<{ traffic: string }>({ type: 'traffic' });
     return data.traffic ?? 'Traffic looks clear ahead.';
   } catch {
     return 'Traffic data unavailable.';
   }
 }
 
-// ----- Voice alert helper -----
+/** AI-written session wrap-up for the Summary tab (uses `fetchAgentJson`). */
+export async function fetchSessionSummaryAI(params: {
+  sessionSeconds: number;
+  alertCount: number;
+  avgEar: number;
+  safetyScore: number;
+}): Promise<SessionSummaryAI> {
+  try {
+    return await fetchAgentJson<SessionSummaryAI>({
+      type: 'summary',
+      sessionSeconds: params.sessionSeconds,
+      alertCount: params.alertCount,
+      avgEar: params.avgEar,
+      safetyScore: params.safetyScore,
+    });
+  } catch {
+    return {
+      headline: 'Session complete',
+      tips: [
+        'Take a short break every two hours on long drives.',
+        'If alerts repeated, rest before your next trip.',
+        'Keep the camera on your face for the best readings.',
+      ],
+      closingLine: 'Thanks for using BlinkGuard.',
+    };
+  }
+}
+
 export function speakAlert(message: string) {
   if (typeof window === 'undefined') return;
   const utter = new SpeechSynthesisUtterance(message);
@@ -54,7 +66,6 @@ export function speakAlert(message: string) {
   window.speechSynthesis.speak(utter);
 }
 
-// ----- Vibration helper -----
 export function vibrateAlert() {
   if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
     navigator.vibrate([200, 100, 200, 100, 400]);

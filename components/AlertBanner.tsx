@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, startTransition } from 'react';
 import type { DrowsinessState } from '@/lib/drowsiness';
 
 interface Props { drowsinessState: DrowsinessState; }
@@ -9,11 +9,11 @@ export default function AlertBanner({ drowsinessState }: Props) {
 
   useEffect(() => {
     if (drowsinessState === 'danger') {
-      setShow(true);
-    } else {
-      const t = setTimeout(() => setShow(false), 800);
-      return () => clearTimeout(t);
+      startTransition(() => setShow(true));
+      return;
     }
+    const t = setTimeout(() => startTransition(() => setShow(false)), 800);
+    return () => clearTimeout(t);
   }, [drowsinessState]);
 
   if (!show) return null;

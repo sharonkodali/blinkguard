@@ -4,6 +4,7 @@ import {
   computeEAR,
   computeMAR,
   type CalibrationData,
+  type FaceLandmark,
   saveCalibrationData,
 } from '@/lib/drowsiness';
 
@@ -14,6 +15,8 @@ interface Props {
 }
 
 type CalibrationStep = 'start' | 'eyes-open' | 'eyes-closed' | 'normal-blink' | 'yawning' | 'complete';
+
+type FaceMeshResults = { multiFaceLandmarks?: FaceLandmark[][] };
 
 export default function CalibrationWizard({
   videoRef,
@@ -37,7 +40,13 @@ export default function CalibrationWizard({
   useEffect(() => {
     if (!isCollecting || !videoRef.current || !canvasRef.current) return;
 
-    let faceMesh: any = null;
+    // Instance from dynamic import; MediaPipe types are incomplete.
+    let faceMesh: {
+      close: () => void;
+      setOptions: (o: object) => void;
+      onResults: (cb: (r: FaceMeshResults) => void) => void;
+      send: (input: { image: HTMLVideoElement }) => Promise<void>;
+    } | null = null;
 
     const setupMediaPipe = async () => {
       const { FaceMesh } = await import('@mediapipe/face_mesh');
@@ -54,7 +63,7 @@ export default function CalibrationWizard({
         minTrackingConfidence: 0.5,
       });
 
-      faceMesh.onResults((results: any) => {
+      faceMesh.onResults((results: FaceMeshResults) => {
         if (!results.multiFaceLandmarks?.length) return;
 
         const lm = results.multiFaceLandmarks[0];
@@ -258,7 +267,7 @@ export default function CalibrationWizard({
             <div className="cw-emoji">👁</div>
             <p className="cw-step-title">Eye Calibration Setup</p>
             <p className="cw-step-subtitle">
-              We'll guide you through simple eye movements to calibrate the system for your unique eyes.
+              We&apos;ll guide you through simple eye movements to calibrate the system for your unique eyes.
             </p>
             <div className="cw-button-group">
               <button onClick={startStep} className="cw-button cw-button-primary">
@@ -310,7 +319,7 @@ export default function CalibrationWizard({
             <p className="cw-step-title">Perform a few yawns</p>
             <div className="cw-timer">{timeRemaining}</div>
             <p className="cw-step-subtitle">
-              Open your mouth wide like you're yawning. 2-3 yawns is enough.
+              Open your mouth wide like you&apos;re yawning. 2-3 yawns is enough.
             </p>
           </div>
         )}

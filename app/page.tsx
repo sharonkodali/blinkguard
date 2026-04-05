@@ -1,5 +1,6 @@
 'use client';
 import { useRef, useEffect, useState, useCallback } from 'react';
+import Link from 'next/link';
 import StatusPanel from '@/components/StatusPanel';
 import AlertBanner from '@/components/AlertBanner';
 import CalibrationWizard from '@/components/CalibrationWizard';
@@ -26,7 +27,6 @@ export default function Home() {
   const [isCalibrating, setIsCalibrating] = useState(false);
   const [isStarted,      setIsStarted]      = useState(false);
   const [ear,            setEar]            = useState(0);
-  const [mar,            setMar]            = useState(0);
   const [closedFrames,   setClosedFrames]   = useState(0);
   const [drowsinessState, setDrowsinessState] = useState<DrowsinessState>('awake');
   const [faceDetected,   setFaceDetected]   = useState(false);
@@ -130,7 +130,6 @@ export default function Home() {
           const currentEAR = computeEAR(lm);
           const currentMAR = computeMAR(lm);
           setEar(parseFloat(currentEAR.toFixed(3)));
-          setMar(parseFloat(currentMAR.toFixed(3)));
 
           // ── Update closed-frames counter ───────────────────────────────────────
           if (isEyeClosed(currentEAR)) {
@@ -253,7 +252,13 @@ export default function Home() {
     <>
       <style>{`
         .page-main { width: 100vw; height: 100vh; background: var(--bg); color: var(--text); display: flex; flex-direction: column; align-items: center; padding: 0.5rem 1rem; overflow: hidden; }
-        .page-header { width: 100%; display: flex; align-items: center; justify-content: space-between; }
+        .page-header { width: 100%; max-width: 520px; display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; flex-wrap: wrap; }
+        .page-dash-link {
+          font-size: 0.75rem; font-weight: 600; padding: 0.35rem 0.75rem; border-radius: var(--radius-sm);
+          border: 1px solid var(--border-strong); background: var(--surface2); color: var(--blue-soft);
+          text-decoration: none; white-space: nowrap; transition: border-color 0.2s, color 0.2s;
+        }
+        .page-dash-link:hover { border-color: var(--blue-soft); color: var(--text); }
         .page-title { font-size: 1.125rem; font-weight: 900; color: var(--red); }
         .page-header-status { display: flex; align-items: center; gap: 0.75rem; }
         .page-status-text { font-size: 0.75rem; color: var(--text-faint); }
@@ -281,6 +286,9 @@ export default function Home() {
       <main className="page-main">
         <div className="page-header">
           <h1 className="page-title">BlinkGuard</h1>
+          <Link href="/monitor" className="page-dash-link">
+            Full dashboard →
+          </Link>
           <div className="page-header-status">
             <div className="page-status-text">
               {isStarted
@@ -343,7 +351,6 @@ export default function Home() {
           <div className="page-metrics">
             <StatusPanel
               ear={ear}
-              mar={mar}
               closedFrames={closedFrames}
               drowsinessState={drowsinessState}
               faceDetected={faceDetected}
