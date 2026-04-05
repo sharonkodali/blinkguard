@@ -244,18 +244,11 @@ export default function AlertBanner({ drowsinessState, userPosition }: Props) {
 
     if (level === 'warning') {
       if (c) playWarningChirps(c);
-      // Slight delay so siren finishes before voice — cleaner on mobile
-      setTimeout(() => speak(
-        'Attention. Drowsiness detected. Please find a safe place to stop soon.',
-        1.05, 1.1
-      ), 900);
+      setTimeout(() => speak('Warning. Warning.', 1.0, 1.15), 900);
       vibrate([300, 120, 300, 120, 300]);
     } else {
       if (c) playEmergencySiren(c);
-      setTimeout(() => speak(
-        'Warning! Wake up! You are falling asleep! Pull over immediately!',
-        1.25, 1.3
-      ), 700);
+      setTimeout(() => speak('Wake up! Pull over! Wake up! Pull over now!', 1.2, 1.3), 700);
       vibrate([700, 100, 700, 100, 700, 100, 700, 100, 700]);
     }
   }, []);

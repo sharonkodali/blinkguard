@@ -339,7 +339,7 @@ function GoogleNavigationInner({ drowsinessState, onRouteMetaChange, apiKey }: P
     /* ── Search bar (pre-navigation) ─────────────────────────────── */
     .gnw-search {
       position:absolute; top:0; left:0; right:0; z-index:1000;
-      padding:10px 10px 0;
+      padding:calc(env(safe-area-inset-top, 0px) + 52px) 10px 0;
     }
     .gnw-search-inner {
       background:#fff; border-radius:24px;
@@ -363,11 +363,6 @@ function GoogleNavigationInner({ drowsinessState, onRouteMetaChange, apiKey }: P
       margin:6px 4px 6px 0;
     }
     .gnw-search-nav-btn:disabled { opacity:0.55; }
-    .gnw-search-clear {
-      -webkit-appearance:none; appearance:none;
-      background:transparent; border:none; color:#5f6368;
-      font-size:1.1rem; cursor:pointer; padding:10px 8px; line-height:1;
-    }
     .gnw-search-dest-row {
       padding:0 16px 4px; font-size:0.72rem; color:#5f6368;
       display:flex; align-items:center; gap:6px;
@@ -578,9 +573,6 @@ function GoogleNavigationInner({ drowsinessState, onRouteMetaChange, apiKey }: P
                   onFocus={() => setSearchFocused(true)}
                   onBlur={() => setSearchFocused(false)}
                 />
-                {destText && (
-                  <button type="button" className="gnw-search-clear" onClick={() => { setDestText(''); setNavError(null); }} aria-label="Clear">✕</button>
-                )}
                 <button
                   type="button"
                   className="gnw-search-nav-btn"
