@@ -13,13 +13,25 @@ const R_LEFT = 362, R_RIGHT = 263;
 const M_TOP = 13, M_BOT = 14;
 const M_LEFT = 78, M_RIGHT = 308;
 
-// ─── Thresholds ──────────────────────────────────────────────────────────────
-export const EAR_THRESHOLD      = 0.27;  // below = eye closed
-export const MAR_THRESHOLD      = 0.50;  // above = yawning
-export const FRAMES_WARNING     = 8;     // ~0.5s of closed eyes
-export const FRAMES_DANGER      = 20;    // ~1.2s  → trigger full alert
+// ─── Default Thresholds (fallback) ───────────────────────────────────────────
+const DEFAULT_EAR_THRESHOLD = 0.235;
+const DEFAULT_MAR_THRESHOLD = 0.65;
+export const FRAMES_WARNING = 15;
+export const FRAMES_DANGER  = 35;
+
+// ─── Personalized Thresholds (will be set during calibration) ─────────────────
+let personalEARThreshold = DEFAULT_EAR_THRESHOLD;
+let personalMARThreshold = DEFAULT_MAR_THRESHOLD;
 
 export type DrowsinessState = 'awake' | 'warning' | 'danger';
+
+export interface CalibrationData {
+  eyesOpenEARValues: number[];
+  eyesClosedEARValues: number[];
+  normalBlinkEARValues: number[];
+  yawningMARValues: number[];
+  timestamp: number;
+}
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 function dist2D(a: any, b: any): number {
@@ -46,8 +58,115 @@ export function computeMAR(lm: any[]): number {
   return vertical / horizontal;
 }
 
-export const isEyeClosed = (ear: number) => ear < EAR_THRESHOLD;
-export const isYawning   = (mar: number) => mar > MAR_THRESHOLD;
+// ─── Threshold functions ──────────────────────────────────────────────────────
+export const isEyeClosed = (ear: number) => ear < personalEARThreshold;
+export const isYawning   = (mar: number) => mar > personalMARThreshold;
+
+export function getPersonalEARThreshold() {
+  return personalEARThreshold;
+}
+
+export function getPersonalMARThreshold() {
+  return personalMARThreshold;
+}
+
+// ─── ML-based Threshold Calculation ───────────────────────────────────────────
+function calculateMean(values: number[]): number {
+  if (values.length === 0) return 0;
+  return values.reduce((a, b) => a + b, 0) / values.length;
+}
+
+function calculateStdDev(values: number[], mean: number): number {
+  if (values.length === 0) return 0;
+  const variance = values.reduce((sum, val) => sum + Math.pow(val - mean, 2), 0) / values.length;
+  return Math.sqrt(variance);
+}
+
+export function calculatePersonalizedThresholds(calibData: CalibrationData): {
+  earThreshold: number;
+  marThreshold: number;
+} {
+  // Calculate EAR threshold: midpoint between open and closed eyes
+  // with a slight bias towards closed to be more sensitive
+  const openMean = calculateMean(calibData.eyesOpenEARValues);
+  const closedMean = calculateMean(calibData.eyesClosedEARValues);
+  const openStdDev = calculateStdDev(calibData.eyesOpenEARValues, openMean);
+  
+  // Threshold: mean of closed + 1 std dev (good margin for safety)
+  const earThreshold = Math.max(
+    0.1, // minimum threshold
+    (closedMean + openMean) / 2 - openStdDev * 0.3
+  );
+
+  // Calculate MAR threshold: use yawning data
+  const yawnMean = calculateMean(calibData.yawningMARValues);
+  const yawnStdDev = calculateStdDev(calibData.yawningMARValues, yawnMean);
+  
+  // Threshold: mean - 1 std dev (detect yawns reliably)
+  const marThreshold = Math.max(
+    0.3, // minimum threshold
+    yawnMean - yawnStdDev * 0.5
+  );
+
+  return { earThreshold, marThreshold };
+}
+
+export function setPersonalizedThresholds(earThreshold: number, marThreshold: number) {
+  personalEARThreshold = earThreshold;
+  personalMARThreshold = marThreshold;
+}
+
+// ─── Calibration Storage ──────────────────────────────────────────────────────
+export function saveCalibrationData(calibData: CalibrationData) {
+  if (typeof window !== 'undefined') {
+    const thresholds = calculatePersonalizedThresholds(calibData);
+    setPersonalizedThresholds(thresholds.earThreshold, thresholds.marThreshold);
+    
+    // Store to localStorage
+    localStorage.setItem('blinkguard_calibration', JSON.stringify({
+      calibData,
+      thresholds,
+      timestamp: Date.now(),
+    }));
+  }
+}
+
+export function loadCalibrationData() {
+  if (typeof window !== 'undefined') {
+    const stored = localStorage.getItem('blinkguard_calibration');
+    if (stored) {
+      try {
+        const { thresholds } = JSON.parse(stored);
+        setPersonalizedThresholds(thresholds.earThreshold, thresholds.marThreshold);
+        return true;
+      } catch (e) {
+        console.error('Failed to load calibration:', e);
+      }
+    }
+  }
+  return false;
+}
+
+export function hasCalibration() {
+  if (typeof window !== 'undefined') {
+    return localStorage.getItem('blinkguard_calibration') !== null;
+  }
+  return false;
+}
+
+export function getCalibrationData() {
+  if (typeof window !== 'undefined') {
+    const stored = localStorage.getItem('blinkguard_calibration');
+    if (stored) {
+      try {
+        return JSON.parse(stored);
+      } catch (e) {
+        console.error('Failed to parse calibration:', e);
+      }
+    }
+  }
+  return null;
+}
 
 // ─── State machine ───────────────────────────────────────────────────────────
 export function getDrowsinessState(

@@ -2,10 +2,13 @@
 import { useRef, useEffect, useState, useCallback } from 'react';
 import StatusPanel from '@/components/StatusPanel';
 import AlertBanner from '@/components/AlertBanner';
+import CalibrationWizard from '@/components/CalibrationWizard';
 import {
   computeEAR, computeMAR,
   isEyeClosed, isYawning,
   getDrowsinessState,
+  hasCalibration,
+  loadCalibrationData,
   FRAMES_DANGER,
 } from '@/lib/drowsiness';
 import type { DrowsinessState } from '@/lib/drowsiness';
@@ -19,6 +22,8 @@ export default function Home() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
   // ─── State ─────────────────────────────────────────────────────────────────
+  const [needsCalibration, setNeedsCalibration] = useState(true);
+  const [isCalibrating, setIsCalibrating] = useState(false);
   const [isStarted,      setIsStarted]      = useState(false);
   const [ear,            setEar]            = useState(0);
   const [mar,            setMar]            = useState(0);
@@ -32,6 +37,15 @@ export default function Home() {
   const closedRef      = useRef(0);
   const alertCooling   = useRef(false);
   const lastAlertTime  = useRef(0);
+
+  // ─── Check calibration on mount ────────────────────────────────────────────
+  useEffect(() => {
+    const hasCalib = hasCalibration();
+    setNeedsCalibration(!hasCalib);
+    if (hasCalib) {
+      loadCalibrationData();
+    }
+  }, []);
 
   // ─── Session timer ─────────────────────────────────────────────────────────
   useEffect(() => {
@@ -226,16 +240,43 @@ export default function Home() {
     drowsinessState === 'warning' ? 'border-yellow-400' :
     isStarted ? 'border-green-500' : 'border-gray-700';
 
+  // Show calibration wizard if needed
+  if (needsCalibration && !isCalibrating) {
+    return (
+      <CalibrationWizard
+        videoRef={videoRef}
+        canvasRef={canvasRef}
+        onCalibrationComplete={() => {
+          setNeedsCalibration(false);
+          setIsCalibrating(false);
+        }}
+      />
+    );
+  }
+
   return (
     <main className="h-screen w-screen bg-gray-950 text-white flex flex-col items-center py-2 px-4 overflow-hidden">
 
       {/* ── Header ──────────────────────────────────────────────────────────── */}
       <div className="w-full flex items-center justify-between">
         <h1 className="text-lg font-extrabold text-red-400">BlinkGuard</h1>
-        <div className="text-xs text-gray-500">
-          {isStarted
-            ? faceDetected ? '🟢 Face' : '🔴 No face'
-            : '⚫ Off'}
+        <div className="flex items-center gap-3">
+          <div className="text-xs text-gray-500">
+            {isStarted
+              ? faceDetected ? '🟢 Face' : '🔴 No face'
+              : '⚫ Off'}
+          </div>
+          {isStarted && (
+            <button
+              onClick={() => {
+                setIsStarted(false);
+                setNeedsCalibration(true);
+              }}
+              className="text-xs px-2 py-1 rounded bg-gray-700 hover:bg-gray-600 text-gray-300"
+            >
+              Recalibrate
+            </button>
+          )}
         </div>
       </div>
 
