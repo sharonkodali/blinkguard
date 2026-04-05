@@ -2,6 +2,7 @@
 import { useRef, useEffect, useState, useCallback } from 'react';
 import StatusPanel from '@/components/StatusPanel';
 import AlertBanner from '@/components/AlertBanner';
+import AgentPanel from '@/components/AgentPanel';
 import {
   computeEAR, computeMAR,
   isEyeClosed, isYawning,
@@ -296,6 +297,13 @@ export default function Home() {
             alertCount={alertCount}
             sessionTime={sessionTime}
           />
+        </div>
+      )}
+
+      {/* ── Agent Panel ─────────────────────────────────────────────────────── */}
+      {isStarted && (
+        <div className="mt-2 w-full max-w-[520px]">
+          <AgentPanel isDrowsy={drowsinessState === 'danger'} alertCount={alertCount} />
         </div>
       )}
 
