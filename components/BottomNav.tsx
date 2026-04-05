@@ -5,6 +5,12 @@ import { usePathname } from 'next/navigation';
 type Tab = { id: string; href: string; label: string; icon: React.ReactNode };
 
 // Lucide-style inline SVGs (stroke inherits currentColor)
+const HomeIcon = (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round">
+    <path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
+    <polyline points="9 22 9 12 15 12 15 22" />
+  </svg>
+);
 const NavIcon = (
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round">
     <polygon points="3 11 22 2 13 21 11 13 3 11" />
@@ -33,10 +39,11 @@ const UserIcon = (
 );
 
 const TABS: Tab[] = [
-  { id: 'dashboard', href: '/',        label: 'Navigate', icon: NavIcon },
-  { id: 'monitor',   href: '/monitor', label: 'Monitor',  icon: VideoIcon },
-  { id: 'metrics',   href: '/metrics', label: 'Metrics',  icon: ChartIcon },
-  { id: 'profile',   href: '/profile', label: 'Profile',  icon: UserIcon },
+  { id: 'home',    href: '/',        label: 'Home',    icon: HomeIcon },
+  { id: 'drive',   href: '/drive',   label: 'Drive',   icon: NavIcon },
+  { id: 'monitor', href: '/monitor', label: 'Monitor', icon: VideoIcon },
+  { id: 'metrics', href: '/metrics', label: 'Metrics', icon: ChartIcon },
+  { id: 'profile', href: '/profile', label: 'Profile', icon: UserIcon },
 ];
 
 export default function BottomNav() {

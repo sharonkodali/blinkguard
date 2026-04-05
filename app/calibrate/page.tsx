@@ -55,7 +55,7 @@ export default function CalibratePage() {
   }, [startCamera]);
 
   const handleComplete = () => {
-    router.push('/');
+    router.push('/drive');
   };
 
   return (

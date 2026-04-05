@@ -1,428 +1,367 @@
 'use client';
 /**
- * Home — the main driver surface.
+ * Landing — the app's welcome screen.
  *
- * Unlike a typical landing page, this screen runs BOTH the real Google Maps
- * navigation AND the live drowsiness detector at the same time, because the
- * whole point of BlinkGuard is that fatigue monitoring should never be an
- * afterthought you toggle into. The map fills the main area; a small PiP
- * camera preview (powered by `useDrowsinessDetector`) sits in the corner and
- * drives a live status chip + danger banner up top.
+ * This is what users see first: the BlinkGuard logo, a short pitch, navigation
+ * into the rest of the app, and a scrollable gallery of drowsy-driving stats
+ * that frames *why* the product exists. No camera, no map — just context.
  */
-import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import Link from 'next/link';
-import dynamic from 'next/dynamic';
-import { useRouter } from 'next/navigation';
 import BottomNav from '@/components/BottomNav';
-import AlertBanner from '@/components/AlertBanner';
-import {
-  hasCalibration,
-  loadCalibrationData,
-  subscribeCalibration,
-  getCalibrationSnapshot,
-  getCalibrationServerSnapshot,
-} from '@/lib/drowsiness';
-import { useDrowsinessDetector } from '@/lib/useDrowsinessDetector';
-import { useSafetyAgent } from '@/lib/safety-client';
-
-// Dynamic import — Google Maps must run client-side only.
-const GoogleNavigationMap = dynamic(
-  () => import('@/components/GoogleNavigationMap'),
-  {
-    ssr: false,
-    loading: () => (
-      <div className="nav-map-loading">
-        <span className="nav-map-loading-dot" />
-        Preparing navigation…
-      </div>
-    ),
-  },
-);
 
 // ── Icons ─────────────────────────────────────────────────────────────────
 const EyeIcon = (p: { className?: string }) => (
   <svg className={p.className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0" />
+    <path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z" />
     <circle cx="12" cy="12" r="3" />
   </svg>
 );
-const EyeOffIcon = (p: { className?: string }) => (
+const NavArrowIcon = (p: { className?: string }) => (
   <svg className={p.className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <path d="M10.733 5.076a10.744 10.744 0 0 1 11.205 6.575 1 1 0 0 1 0 .696 10.747 10.747 0 0 1-1.444 2.49" />
-    <path d="M14.084 14.158a3 3 0 0 1-4.242-4.242" />
-    <path d="M17.479 17.499a10.75 10.75 0 0 1-15.417-5.151 1 1 0 0 1 0-.696 10.75 10.75 0 0 1 4.446-5.143" />
-    <path d="m2 2 20 20" />
+    <polygon points="3 11 22 2 13 21 11 13 3 11" />
   </svg>
 );
-const AlertIcon = (p: { className?: string }) => (
+const VideoIcon = (p: { className?: string }) => (
   <svg className={p.className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3" />
-    <path d="M12 9v4" />
-    <path d="M12 17h.01" />
+    <path d="m22 8-6 4 6 4V8Z" />
+    <rect width="14" height="12" x="2" y="6" rx="2" ry="2" />
   </svg>
 );
-const CalibIcon = (p: { className?: string }) => (
+const ChartIcon = (p: { className?: string }) => (
   <svg className={p.className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <circle cx="12" cy="12" r="10" /><path d="M12 6v6l4 2" />
+    <path d="M3 3v18h18" /><path d="M7 16V9" /><path d="M11 16v-5" /><path d="M15 16v-3" /><path d="M19 16V7" />
   </svg>
 );
-const CameraIcon = (p: { className?: string }) => (
+const TargetIcon = (p: { className?: string }) => (
   <svg className={p.className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z" />
-    <circle cx="12" cy="13" r="3" />
-  </svg>
-);
-const StopIcon = (p: { className?: string }) => (
-  <svg className={p.className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <rect x="6" y="6" width="12" height="12" rx="2" />
+    <circle cx="12" cy="12" r="10" /><circle cx="12" cy="12" r="6" /><circle cx="12" cy="12" r="2" />
   </svg>
 );
 
-export default function Home() {
-  const router = useRouter();
+// ── Stats gallery data ────────────────────────────────────────────────────
+// Sources: NHTSA (USA), AAA Foundation for Traffic Safety, CDC, WHO.
+const STATS: { value: string; label: string; source: string }[] = [
+  {
+    value: '~91,000',
+    label: 'police-reported crashes involving drowsy driving each year in the U.S.',
+    source: 'NHTSA',
+  },
+  {
+    value: '~50,000',
+    label: 'injuries annually linked to drowsy driving crashes',
+    source: 'NHTSA',
+  },
+  {
+    value: '~800',
+    label: 'deaths per year attributed to drowsy driving — likely undercounted',
+    source: 'NHTSA',
+  },
+  {
+    value: '1 in 25',
+    label: 'adult drivers report falling asleep at the wheel in the past 30 days',
+    source: 'CDC',
+  },
+  {
+    value: '4×',
+    label: 'higher crash risk after less than 5 hours of sleep',
+    source: 'AAA Foundation',
+  },
+  {
+    value: '≥ 24h',
+    label: 'awake impairs driving comparably to a 0.10% blood alcohol level',
+    source: 'WHO',
+  },
+];
 
-  // Calibration status is subscribed via useSyncExternalStore so SSR returns a
-  // stable `false` (avoids hydration mismatches) and the client re-reads after
-  // mount. This also updates live when the user returns from /calibrate.
-  const calibrated = useSyncExternalStore(
-    subscribeCalibration,
-    getCalibrationSnapshot,
-    getCalibrationServerSnapshot,
-  );
+const FEATURES: { title: string; desc: string; icon: React.ReactNode; href: string }[] = [
+  {
+    title: 'Navigate + Monitor',
+    desc: 'Real-time Google Maps navigation with drowsiness detection running in the background.',
+    icon: <NavArrowIcon className="lp-feature-icon" />,
+    href: '/drive',
+  },
+  {
+    title: 'Live face mesh',
+    desc: 'Full-screen camera view with MediaPipe face-mesh overlay for dedicated fatigue tracking.',
+    icon: <VideoIcon className="lp-feature-icon" />,
+    href: '/monitor',
+  },
+  {
+    title: 'Trip metrics',
+    desc: 'Per-drive analytics, Fetch.ai safety score, incident timeline, and AI coaching tips.',
+    icon: <ChartIcon className="lp-feature-icon" />,
+    href: '/metrics',
+  },
+  {
+    title: 'Calibration',
+    desc: 'A quick eyes-open / eyes-closed / yawn baseline so detection fits your face.',
+    icon: <TargetIcon className="lp-feature-icon" />,
+    href: '/calibrate',
+  },
+];
 
-  // First-time users must calibrate before seeing the map.
-  // Once calibration is saved to localStorage it never redirects again.
-  useEffect(() => {
-    if (!hasCalibration()) {
-      router.replace('/calibrate');
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // intentionally empty — only check once on mount
-
-  useEffect(() => {
-    if (calibrated) loadCalibrationData();
-  }, [calibrated]);
-
-  // ── Live drowsiness detector ──────────────────────────────────────────
-  // The hook owns the camera + MediaPipe pipeline and mirrors its state to
-  // the cross-page liveSession store so Metrics can read it too. We disable
-  // the mesh drawing here because the Home-page preview is a tiny PiP — the
-  // full mesh overlay lives on the /monitor page.
-  const detector = useDrowsinessDetector({
-    drawMesh: false,
-    enableAlerts: true,
-    persistOnStop: true,
-  });
-  const {
-    videoRef,
-    canvasRef,
-    isStarted: monitoring,
-    start: startMonitor,
-    drowsinessState,
-    faceDetected,
-    blinkRate,
-    alertCount,
-    ear,
-    mar,
-    warningCount,
-    dangerCount,
-    sessionTime,
-    yawning,
-    closedFrames,
-    error: detectorError,
-    setSessionMeta,
-  } = detector;
-
-  // Stable session ID — regenerated when monitoring restarts.
-  const sessionIdRef = useRef(`session_${Date.now()}`);
-  useEffect(() => {
-    if (monitoring) sessionIdRef.current = `session_${Date.now()}`;
-  }, [monitoring]);
-
-  // Fetch.ai safety agent — sends telemetry every 2 s, gets back tripScore.
-  const { decision: agentDecision } = useSafetyAgent({
-    sessionId: sessionIdRef.current,
-    enabled: monitoring,
-    state: drowsinessState,
-    closedFrames,
-    ear,
-    mar,
-    blinkRate,
-    yawning,
-    calibrated,
-  });
-
-  // Feed the agent's trip score back into the session record.
-  useEffect(() => {
-    if (agentDecision?.tripScore != null) {
-      setSessionMeta({ agentTripScore: agentDecision.tripScore });
-    }
-  }, [agentDecision?.tripScore, setSessionMeta]);
-
-  // When the navigation destination changes, record it on the session.
-  const handleRouteMeta = useCallback(
-    (meta: { destinationLabel?: string } | null) => {
-      setSessionMeta({ destination: meta?.destinationLabel ?? undefined });
-    },
-    [setSessionMeta],
-  );
-
-  // Watchdog: keep monitoring running at all times while on this page.
-  // Fires on mount and any time `monitoring` drops to false.
-  const startMonitorRef = useRef(startMonitor);
-  startMonitorRef.current = startMonitor;
-  useEffect(() => {
-    if (monitoring) return; // already running — nothing to do
-    const t = setTimeout(() => { void startMonitorRef.current(); }, 500);
-    return () => clearTimeout(t);
-  }, [monitoring]); // re-run whenever monitoring flips off
-
-  // Drive status pill — driven by live detector state while monitoring,
-  // otherwise shows a neutral idle pill so the header stays stable.
-  const statusClass = !monitoring
-    ? 'idle'
-    : drowsinessState === 'awake'
-      ? 'safe'
-      : drowsinessState === 'warning'
-        ? 'warning'
-        : 'danger';
-  const statusText = !monitoring
-    ? 'Monitor off'
-    : !faceDetected
-      ? 'Finding face…'
-      : drowsinessState === 'awake'
-        ? 'Alert'
-        : drowsinessState === 'warning'
-          ? 'Drowsy'
-          : 'Danger';
-
-  // Track user's geolocation — passed to AlertBanner so it can fetch nearby
-  // pullover recommendations from the Fetch.ai agent when an alert fires.
-  const [userPosition, setUserPosition] = useState<{ lat: number; lng: number } | null>(null);
-  useEffect(() => {
-    if (typeof navigator === 'undefined' || !navigator.geolocation) return;
-    const id = navigator.geolocation.watchPosition(
-      (pos) => setUserPosition({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
-      () => {/* permission denied — spots won't load but app still works */},
-      { enableHighAccuracy: true, maximumAge: 10_000 },
-    );
-    return () => navigator.geolocation.clearWatch(id);
-  }, []);
-
-  // Danger banner: only shown while monitoring AND in danger state. The
-  // detector already fires voice/vibration alerts; this is a visual echo.
-  const showDanger = monitoring && drowsinessState === 'danger';
-
+export default function Landing() {
   return (
     <>
       <style>{`
-        @keyframes navPulse  { 0%,100%{opacity:1} 50%{opacity:0.4} }
-        @keyframes iosPulse  { 0%,100%{opacity:1} 50%{opacity:0.75} }
-
-        /* Full-screen map container */
-        .nav-screen {
-          flex: 1; position: relative; min-height: 0; overflow: hidden;
-          background: #e8eaed;
+        .lp-screen {
+          flex: 1; min-height: 0; overflow-y: auto;
+          background: linear-gradient(180deg, var(--ios-midnight) 0%, var(--ios-midnight-light) 100%);
+          color: #fff;
+          padding-bottom: calc(5rem + env(safe-area-inset-bottom));
         }
 
-        /* Map fills every pixel */
-        .nav-map-layer {
-          position: absolute; inset: 0;
-          padding-bottom: calc(4rem + env(safe-area-inset-bottom));
+        /* Hero */
+        .lp-hero {
+          padding: calc(2.5rem + env(safe-area-inset-top)) 1.25rem 2rem;
+          text-align: center;
+          display: flex; flex-direction: column; align-items: center; gap: 1rem;
         }
-        .nav-map-layer > *:first-child { position: absolute; inset: 0; width: 100%; height: 100%; }
-        .nav-map-loading {
-          position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
-          gap: 0.5rem; font-size: 0.78rem; color: #9aa0a6; background: #f8f9fa;
+        .lp-logo {
+          width: 5.5rem; height: 5.5rem; border-radius: 1.75rem;
+          background: linear-gradient(135deg, #06b6d4 0%, #3b82f6 100%);
+          display: flex; align-items: center; justify-content: center;
+          box-shadow: 0 20px 40px -12px rgba(6,182,212,0.55),
+                      inset 0 1px 0 rgba(255,255,255,0.35);
+          position: relative;
         }
-        .nav-map-loading-dot {
-          width: 0.5rem; height: 0.5rem; border-radius: 9999px;
-          background: #1a73e8; animation: navPulse 1s ease-in-out infinite;
+        .lp-logo::after {
+          content: ''; position: absolute; inset: -6px; border-radius: 2rem;
+          border: 1px solid rgba(6,182,212,0.35);
+          animation: lpRing 2.4s ease-in-out infinite;
         }
-
-        /* Floating top-left: calibration chip */
-        .nav-float-calib {
-          position: absolute;
-          top: calc(0.75rem + env(safe-area-inset-top));
-          left: 0.75rem;
-          z-index: 800;
+        @keyframes lpRing { 0%,100% { opacity: 0.4; transform: scale(1); } 50% { opacity: 0.9; transform: scale(1.04); } }
+        .lp-logo svg { width: 2.75rem; height: 2.75rem; color: #fff; }
+        .lp-brand {
+          font-size: 2rem; font-weight: 700; letter-spacing: -0.02em;
+          background: linear-gradient(90deg, #e0f2fe 0%, #93c5fd 100%);
+          -webkit-background-clip: text; background-clip: text; color: transparent;
         }
-        .nav-calib-chip {
-          display: inline-flex; align-items: center; gap: 0.35rem;
-          padding: 0.45rem 0.85rem; border-radius: 9999px;
-          background: rgba(255,255,255,0.96); color: #202124;
-          border: 1px solid rgba(0,0,0,0.12); font-size: 0.7rem; font-weight: 600;
-          box-shadow: 0 2px 8px rgba(0,0,0,0.14); text-decoration: none;
-          white-space: nowrap; backdrop-filter: blur(8px);
+        .lp-tag {
+          font-size: 0.9rem; color: rgba(255,255,255,0.7);
+          max-width: 22rem; line-height: 1.5;
         }
-        .nav-calib-chip svg { width: 0.75rem; height: 0.75rem; }
-        .nav-calib-chip.calibrated { color: #137333; border-color: rgba(19,115,51,0.3); }
-        .nav-calib-chip.pending    { color: #e37400; border-color: rgba(227,116,0,0.35); }
-
-        /* Floating top-right: live status pill */
-        .nav-float-status {
-          position: absolute;
-          top: calc(0.75rem + env(safe-area-inset-top));
-          right: 0.75rem;
-          z-index: 800;
+        .lp-cta-row {
+          display: flex; gap: 0.625rem; margin-top: 0.5rem;
+          flex-wrap: wrap; justify-content: center;
         }
-        .nav-score-pill {
+        .lp-cta {
           display: inline-flex; align-items: center; gap: 0.4rem;
-          padding: 0.45rem 0.85rem; border-radius: 9999px; color: #fff;
-          font-size: 0.7rem; font-weight: 600; white-space: nowrap;
-          box-shadow: 0 2px 8px rgba(0,0,0,0.2); backdrop-filter: blur(8px);
+          padding: 0.75rem 1.25rem; border-radius: 9999px;
+          font-weight: 600; font-size: 0.82rem; text-decoration: none;
+          box-shadow: 0 10px 20px -8px rgba(0,0,0,0.4);
         }
-        .nav-score-pill svg { width: 0.75rem; height: 0.75rem; }
-        .nav-score-pill.idle    { background: rgba(100,116,139,0.9); }
-        .nav-score-pill.safe    { background: rgba(16,185,129,0.92); }
-        .nav-score-pill.warning { background: rgba(245,158,11,0.95); }
-        .nav-score-pill.danger  { background: rgba(239,68,68,0.97); animation: iosPulse 0.9s ease-in-out infinite; }
+        .lp-cta.primary { background: #fff; color: var(--ios-midnight); }
+        .lp-cta.ghost {
+          background: rgba(255,255,255,0.1); color: #fff;
+          border: 1px solid rgba(255,255,255,0.25); backdrop-filter: blur(8px);
+        }
+        .lp-cta svg { width: 0.95rem; height: 0.95rem; }
 
-        /* Full-screen danger overlay (on top of map + banner) */
-        .nav-danger-flash {
-          position: absolute; inset: 0; z-index: 700;
-          background: rgba(220, 38, 38, 0.22);
-          pointer-events: none;
-          animation: iosPulse 1s ease-in-out infinite;
+        /* Section headings */
+        .lp-section {
+          padding: 1.5rem 1.25rem 0.5rem;
         }
-
-        /* Danger pull-over strip — floats just above the navigation ETA bar */
-        .nav-alert-strip {
-          position: absolute; left: 0.75rem; right: 0.75rem; bottom: 170px; z-index: 800;
-          background: #b91c1c; color: #fff; border-radius: 14px;
-          padding: 0.7rem 1rem;
-          display: flex; align-items: center; gap: 0.75rem;
-          box-shadow: 0 4px 20px rgba(185,28,28,0.5);
-          animation: iosPulse 1.2s ease-in-out infinite;
+        .lp-section-title {
+          font-size: 0.72rem; font-weight: 700;
+          text-transform: uppercase; letter-spacing: 0.12em;
+          color: rgba(147,197,253,0.9);
+          margin-bottom: 0.75rem;
         }
-        .nav-alert-icon-wrap {
-          width: 2rem; height: 2rem; border-radius: 50%;
-          background: #fff; color: #b91c1c;
-          display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+        .lp-section-lead {
+          font-size: 1.15rem; font-weight: 600; line-height: 1.35;
+          color: #fff; margin-bottom: 0.35rem;
         }
-        .nav-alert-icon-wrap svg { width: 1rem; height: 1rem; }
-        .nav-alert-title { font-weight: 700; font-size: 0.82rem; line-height: 1.2; }
-        .nav-alert-sub   { font-size: 0.68rem; opacity: 0.9; line-height: 1.3; margin-top: 2px; }
-
-        /* Camera: always mounted so hook can attach, but invisible */
-        .nav-cam-bg {
-          position: absolute; width: 1px; height: 1px; opacity: 0;
-          pointer-events: none; left: -9999px; top: -9999px; overflow: hidden;
+        .lp-section-sub {
+          font-size: 0.82rem; color: rgba(255,255,255,0.65);
+          line-height: 1.5;
         }
 
-        /* Monitoring indicator chip (bottom-left, above nav strip) */
-        .nav-monitor-indicator {
-          position: absolute; left: 0.75rem; bottom: 170px; z-index: 800;
-          display: inline-flex; align-items: center; gap: 0.45rem;
-          padding: 0.45rem 0.85rem; border-radius: 9999px;
-          background: rgba(15,23,41,0.88); color: #fff;
-          font-size: 0.68rem; font-weight: 600;
-          box-shadow: 0 2px 10px rgba(0,0,0,0.25); backdrop-filter: blur(8px);
-          pointer-events: none;
+        /* Stats gallery — horizontal snap scroller */
+        .lp-gallery {
+          display: flex; gap: 0.75rem;
+          overflow-x: auto; scroll-snap-type: x mandatory;
+          padding: 1rem 1.25rem 0.5rem;
+          -webkit-overflow-scrolling: touch;
+          scrollbar-width: none;
         }
-        .nav-monitor-dot {
-          width: 0.5rem; height: 0.5rem; border-radius: 50%;
-          animation: navPulse 1.2s ease-in-out infinite;
+        .lp-gallery::-webkit-scrollbar { display: none; }
+        .lp-stat-card {
+          flex: 0 0 78%; max-width: 20rem;
+          scroll-snap-align: start;
+          background: rgba(255,255,255,0.06);
+          border: 1px solid rgba(255,255,255,0.12);
+          border-radius: 1.25rem;
+          padding: 1.25rem 1.1rem;
+          backdrop-filter: blur(12px);
+          display: flex; flex-direction: column; gap: 0.6rem;
         }
-        .nav-monitor-dot.safe    { background: #10b981; }
-        .nav-monitor-dot.warning { background: #f59e0b; }
-        .nav-monitor-dot.danger  { background: #ef4444; }
+        .lp-stat-value {
+          font-size: 2.1rem; font-weight: 800; line-height: 1;
+          background: linear-gradient(90deg, #06b6d4 0%, #a78bfa 100%);
+          -webkit-background-clip: text; background-clip: text; color: transparent;
+        }
+        .lp-stat-label {
+          font-size: 0.82rem; line-height: 1.45;
+          color: rgba(255,255,255,0.85);
+        }
+        .lp-stat-source {
+          font-size: 0.65rem; letter-spacing: 0.06em; text-transform: uppercase;
+          color: rgba(147,197,253,0.75); margin-top: auto;
+        }
 
-        /* FAB: Start / Stop monitoring — bottom center of the map */
-        .nav-fab-wrap {
-          position: absolute;
-          bottom: calc(4.5rem + env(safe-area-inset-bottom));
-          left: 50%; transform: translateX(-50%);
-          z-index: 800;
+        /* Features grid — 2 col */
+        .lp-feature-grid {
+          display: grid; grid-template-columns: 1fr 1fr;
+          gap: 0.75rem; padding: 1rem 1.25rem 0;
         }
-        .nav-fab {
-          -webkit-appearance: none; appearance: none;
-          display: inline-flex; align-items: center; gap: 0.45rem;
-          padding: 0.875rem 1.75rem; border-radius: 9999px;
-          font-weight: 700; font-size: 0.88rem; border: none; cursor: pointer;
-          font-family: inherit; white-space: nowrap;
-          box-shadow: 0 4px 16px rgba(0,0,0,0.28);
+        .lp-feature-card {
+          background: rgba(255,255,255,0.06);
+          border: 1px solid rgba(255,255,255,0.12);
+          border-radius: 1rem; padding: 1rem;
+          text-decoration: none; color: #fff;
+          display: flex; flex-direction: column; gap: 0.5rem;
+          backdrop-filter: blur(8px);
+          transition: transform 0.15s ease, background 0.15s ease;
         }
-        .nav-fab svg { width: 1rem; height: 1rem; }
-        .nav-fab.start { background: #202124; color: #fff; }
-        .nav-fab.stop  { background: #ea4335; color: #fff; }
+        .lp-feature-card:active { transform: scale(0.98); background: rgba(255,255,255,0.1); }
+        .lp-feature-icon {
+          width: 1.25rem; height: 1.25rem; color: #67e8f9;
+        }
+        .lp-feature-title {
+          font-weight: 600; font-size: 0.88rem; line-height: 1.2;
+        }
+        .lp-feature-desc {
+          font-size: 0.72rem; color: rgba(255,255,255,0.65); line-height: 1.4;
+        }
 
-        .nav-error {
-          position: absolute; top: calc(4rem + env(safe-area-inset-top)); left: 0.75rem; right: 0.75rem;
-          z-index: 810; padding: 0.55rem 0.875rem;
-          background: rgba(234,67,53,0.92); color: #fff;
-          border-radius: 0.75rem; font-size: 0.72rem; text-align: center;
+        /* How it works */
+        .lp-how {
+          padding: 1.25rem 1.25rem 0;
+          display: flex; flex-direction: column; gap: 0.6rem;
+        }
+        .lp-how-row {
+          display: flex; gap: 0.85rem; align-items: flex-start;
+          background: rgba(255,255,255,0.04);
+          border: 1px solid rgba(255,255,255,0.1);
+          border-radius: 0.9rem; padding: 0.85rem 1rem;
+        }
+        .lp-how-num {
+          flex-shrink: 0;
+          width: 1.75rem; height: 1.75rem; border-radius: 50%;
+          background: linear-gradient(135deg, #06b6d4, #3b82f6);
+          color: #fff; font-weight: 700; font-size: 0.82rem;
+          display: flex; align-items: center; justify-content: center;
+        }
+        .lp-how-title { font-weight: 600; font-size: 0.85rem; margin-bottom: 0.15rem; }
+        .lp-how-desc { font-size: 0.72rem; color: rgba(255,255,255,0.65); line-height: 1.45; }
+
+        .lp-footer {
+          padding: 1.75rem 1.25rem 0.5rem;
+          text-align: center;
+          font-size: 0.65rem; color: rgba(255,255,255,0.4);
+          letter-spacing: 0.04em;
         }
       `}</style>
 
       <div className="ios-app">
-        <div className="nav-screen">
-          {/* Edge-to-edge map layer */}
-          <div className="nav-map-layer">
-            <GoogleNavigationMap
-              drowsinessState={drowsinessState}
-              onRouteMetaChange={handleRouteMeta}
-            />
-          </div>
-
-          {/* Camera runs invisibly — hook needs the DOM ref to attach MediaStream */}
-          <div className="nav-cam-bg" aria-hidden>
-            <video ref={videoRef} autoPlay muted playsInline />
-            <canvas ref={canvasRef} />
-          </div>
-
-          {/* Danger screen flash */}
-          {showDanger && <div className="nav-danger-flash" aria-hidden />}
-
-          {/* Calibration chip — top left */}
-          <div className="nav-float-calib">
-            <Link href="/calibrate" className={`nav-calib-chip ${calibrated ? 'calibrated' : 'pending'}`}>
-              <CalibIcon />
-              {calibrated ? 'Calibrated' : 'Calibrate'}
-            </Link>
-          </div>
-
-          {/* Live status pill — top right */}
-          <div className="nav-float-status">
-            <div className={`nav-score-pill ${statusClass}`}>
-              {monitoring && drowsinessState !== 'awake' ? <EyeOffIcon /> : <EyeIcon />}
-              <span>{statusText}</span>
-              {monitoring && <span>· {blinkRate}/min</span>}
+        <div className="lp-screen">
+          {/* Hero */}
+          <header className="lp-hero">
+            <div className="lp-logo">
+              <EyeIcon />
             </div>
+            <h1 className="lp-brand">BlinkGuard</h1>
+            <p className="lp-tag">
+              AI-powered drowsy-driving detection that runs alongside your navigation.
+              See fatigue before it sees you.
+            </p>
+            <div className="lp-cta-row">
+              <Link href="/drive" className="lp-cta primary">
+                <NavArrowIcon /> Start driving
+              </Link>
+              <Link href="/calibrate" className="lp-cta ghost">
+                <TargetIcon /> Calibrate
+              </Link>
+            </div>
+          </header>
+
+          {/* Why it matters — stats gallery */}
+          <section className="lp-section">
+            <div className="lp-section-title">Why it matters</div>
+            <h2 className="lp-section-lead">Drowsy driving is a quiet epidemic.</h2>
+            <p className="lp-section-sub">
+              Fatigue impairs reaction time and judgment as severely as alcohol — but
+              nobody gets pulled over for it. BlinkGuard turns your phone's camera
+              into an always-on fatigue monitor.
+            </p>
+          </section>
+          <div className="lp-gallery" role="list">
+            {STATS.map((s) => (
+              <article key={s.value + s.source} className="lp-stat-card" role="listitem">
+                <div className="lp-stat-value">{s.value}</div>
+                <div className="lp-stat-label">{s.label}</div>
+                <div className="lp-stat-source">Source · {s.source}</div>
+              </article>
+            ))}
           </div>
 
-          {/* Pull-over alert strip — floats above ETA bar */}
-          {showDanger && (
-            <div className="nav-alert-strip" role="alert">
-              <div className="nav-alert-icon-wrap"><AlertIcon /></div>
+          {/* Features */}
+          <section className="lp-section">
+            <div className="lp-section-title">What's inside</div>
+            <h2 className="lp-section-lead">Four surfaces, one safety loop.</h2>
+          </section>
+          <div className="lp-feature-grid">
+            {FEATURES.map((f) => (
+              <Link key={f.href} href={f.href} className="lp-feature-card">
+                {f.icon}
+                <div className="lp-feature-title">{f.title}</div>
+                <div className="lp-feature-desc">{f.desc}</div>
+              </Link>
+            ))}
+          </div>
+
+          {/* How it works */}
+          <section className="lp-section">
+            <div className="lp-section-title">How it works</div>
+            <h2 className="lp-section-lead">Blink by blink, frame by frame.</h2>
+          </section>
+          <div className="lp-how">
+            <div className="lp-how-row">
+              <div className="lp-how-num">1</div>
               <div>
-                <p className="nav-alert-title">WAKE UP — Pull over safely</p>
-                <p className="nav-alert-sub">
-                  {alertCount > 0 ? `${alertCount} alert${alertCount === 1 ? '' : 's'} this drive` : 'Fatigue detected'}
-                </p>
+                <div className="lp-how-title">Calibrate</div>
+                <div className="lp-how-desc">A 30-second baseline of your eye and jaw geometry so detection fits you.</div>
               </div>
             </div>
-          )}
-
-          {/* Monitoring live indicator */}
-          {monitoring && !showDanger && (
-            <div className="nav-monitor-indicator">
-              <span className={`nav-monitor-dot ${statusClass}`} />
-              <span>{faceDetected ? `Monitoring · ${blinkRate}/min` : 'Finding face…'}</span>
+            <div className="lp-how-row">
+              <div className="lp-how-num">2</div>
+              <div>
+                <div className="lp-how-title">Drive</div>
+                <div className="lp-how-desc">MediaPipe face-mesh runs on-device while Google Maps handles navigation.</div>
+              </div>
             </div>
-          )}
+            <div className="lp-how-row">
+              <div className="lp-how-num">3</div>
+              <div>
+                <div className="lp-how-title">Alert</div>
+                <div className="lp-how-desc">Audio + haptic wake-up the moment EAR/MAR thresholds cross danger.</div>
+              </div>
+            </div>
+            <div className="lp-how-row">
+              <div className="lp-how-num">4</div>
+              <div>
+                <div className="lp-how-title">Review</div>
+                <div className="lp-how-desc">Fetch.ai scores every trip and coaches you with post-drive insights.</div>
+              </div>
+            </div>
+          </div>
 
-          {detectorError && (
-            <div className="nav-error">{detectorError}</div>
-          )}
+          <div className="lp-footer">BlinkGuard · Eyes on the road, always.</div>
         </div>
 
         <BottomNav />
       </div>
-
-      {/* Full-screen graded alert — warning=amber, danger=red strobe + audio.
-          userPosition enables Fetch.ai-powered nearby pullover recommendations. */}
-      <AlertBanner drowsinessState={drowsinessState} userPosition={userPosition} />
     </>
   );
 }
