@@ -21,6 +21,12 @@ import {
   getLiveSessionSnapshot,
   getLiveSessionServerSnapshot,
 } from '@/lib/liveSession';
+import {
+  subscribeSafetyDecision,
+  getSafetyDecisionSnapshot,
+  getSafetyDecisionServerSnapshot,
+} from '@/lib/safetyDecisionStore';
+import type { AlertLevel } from '@/lib/safety-types';
 
 const EMPTY: SessionData[] = [];
 
@@ -78,6 +84,129 @@ interface AnalyzeResponse {
   aiPowered: boolean;
 }
 
+// ── Fetch.ai helpers ─────────────────────────────────────────────────────
+const ALERT_LABEL: Record<AlertLevel, string> = {
+  none: 'Monitoring',
+  gentle: 'Gentle nudge',
+  warning: 'Warning',
+  critical: 'Critical',
+};
+const TREND_LABEL: Record<'improving' | 'stable' | 'rising' | 'critical', string> = {
+  improving: 'Alertness improving',
+  stable: 'Stable alertness',
+  rising: 'Fatigue rising',
+  critical: 'Critical fatigue trajectory',
+};
+
+function scoreClass(score: number): 'safe' | 'warning' | 'danger' {
+  if (score >= 75) return 'safe';
+  if (score >= 50) return 'warning';
+  return 'danger';
+}
+
+function formatClockTime(ts: number): string {
+  const d = new Date(ts);
+  return d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+}
+
+interface FetchAiPanelProps {
+  decision: import('@/lib/safety-types').SafetyDecision | null;
+  isLive: boolean;
+  lastUpdatedAt: number | null;
+}
+function FetchAiPanel({ decision, isLive, lastUpdatedAt }: FetchAiPanelProps) {
+  if (!decision) {
+    return (
+      <div className="m-fetch">
+        <div className="m-fetch-head">
+          <Sparkle />
+          <h3>Fetch.ai Safety Orchestrator</h3>
+          <span className="m-fetch-badge idle">Idle</span>
+        </div>
+        <p className="m-fetch-tip m-fetch-tip-idle">
+          Start monitoring on Home or Monitor — telemetry will stream to the
+          SafetyOrchestratorAgent every 2 seconds and live decisions will
+          appear here.
+        </p>
+      </div>
+    );
+  }
+
+  const sourceBadgeClass =
+    decision.source === 'uagents' ? '' : decision.source === 'mock' ? 'mock' : 'idle';
+  const sourceLabel = decision.source === 'uagents' ? 'uAgents' : 'Mock';
+  const levelClass =
+    decision.alertLevel === 'critical'
+      ? 'critical'
+      : decision.alertLevel === 'warning'
+        ? 'warning'
+        : decision.alertLevel === 'gentle'
+          ? 'gentle'
+          : '';
+  const sc = scoreClass(decision.tripScore);
+  const topIncidents = decision.incidents.slice(0, 4);
+
+  return (
+    <div className="m-fetch">
+      <div className="m-fetch-head">
+        <Sparkle />
+        <h3>Fetch.ai Safety Orchestrator</h3>
+        <span className="m-fetch-sub">
+          {isLive ? 'Live' : lastUpdatedAt ? `Last seen ${formatClockTime(lastUpdatedAt)}` : ''}
+        </span>
+        <span className={`m-fetch-badge ${sourceBadgeClass}`}>{sourceLabel}</span>
+      </div>
+
+      <div className="m-fetch-hero">
+        <div className={`m-fetch-score ${sc}`}>{decision.tripScore}</div>
+        <div className="m-fetch-hero-body">
+          <span className={`m-fetch-level ${levelClass}`}>
+            {ALERT_LABEL[decision.alertLevel]}
+          </span>
+          <div className="m-fetch-reco">{decision.recommendation}</div>
+          {decision.coachingTip && (
+            <div className="m-fetch-tip">{decision.coachingTip}</div>
+          )}
+        </div>
+      </div>
+
+      <div className="m-fetch-meta">
+        <div className="m-fetch-meta-cell">
+          <div className="m-fetch-meta-v">{Math.round(decision.predictedRisk * 100)}%</div>
+          <div className="m-fetch-meta-l">Predicted risk</div>
+        </div>
+        <div className="m-fetch-meta-cell">
+          <div className="m-fetch-meta-v m-fetch-meta-v-small">
+            {TREND_LABEL[decision.predictedTrend]}
+          </div>
+          <div className="m-fetch-meta-l">Trend</div>
+        </div>
+        <div className="m-fetch-meta-cell">
+          <div className="m-fetch-meta-v">{decision.calibrated ? 'Yes' : 'No'}</div>
+          <div className="m-fetch-meta-l">Calibrated</div>
+        </div>
+      </div>
+
+      <div className="m-fetch-incidents-head">Incident timeline · {decision.incidents.length}</div>
+      {topIncidents.length === 0 ? (
+        <div className="m-fetch-inc-empty">No incidents logged this drive — agent is happy.</div>
+      ) : (
+        topIncidents.map((inc) => (
+          <div key={inc.id} className="m-fetch-incident">
+            <div className={`m-fetch-inc-bar ${inc.severity}`} />
+            <div className="m-fetch-inc-body">
+              <div className="m-fetch-inc-msg">{inc.message}</div>
+              <div className="m-fetch-inc-meta">
+                {formatClockTime(inc.timestamp)} · {inc.reason.replace(/_/g, ' ')} · severity {inc.severity}
+              </div>
+            </div>
+          </div>
+        ))
+      )}
+    </div>
+  );
+}
+
 const RISK_COLOR: Record<AnalyzeResponse['overallRisk'], string> = {
   low: 'safe',
   moderate: 'warning',
@@ -100,6 +229,16 @@ export default function MetricsPage() {
     getLiveSessionSnapshot,
     getLiveSessionServerSnapshot,
   );
+
+  // Fetch.ai SafetyOrchestratorAgent snapshot — published by `useSafetyAgent`
+  // on whichever page currently owns the camera. Survives after monitoring
+  // stops so this page can still show the last orchestrator response.
+  const safety = useSyncExternalStore(
+    subscribeSafetyDecision,
+    getSafetyDecisionSnapshot,
+    getSafetyDecisionServerSnapshot,
+  );
+  const decision = safety.decision;
 
   const [analysis, setAnalysis] = useState<AnalyzeResponse | null>(null);
   const [loading, setLoading] = useState(false);
@@ -161,6 +300,90 @@ export default function MetricsPage() {
         .m-head-risk.danger  { background: rgba(239,68,68,0.22);  color: #fca5a5; }
 
         .m-section { padding: 0 1rem; margin-top: 1.5rem; display: flex; flex-direction: column; gap: 1.25rem; }
+
+        /* Fetch.ai SafetyOrchestratorAgent panel */
+        .m-fetch {
+          background: linear-gradient(135deg, #0f1729 0%, #1e293b 100%);
+          color: #fff; border-radius: 1rem; padding: 1.1rem 1.1rem 1rem;
+          box-shadow: 0 12px 26px -12px rgba(15,23,41,0.55);
+          border: 1px solid rgba(148,163,184,0.18);
+        }
+        .m-fetch-head { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.8rem; }
+        .m-fetch-head svg { width: 1rem; height: 1rem; color: #a7f3d0; }
+        .m-fetch-head h3 { color: #fff; font-size: 0.95rem; font-weight: 600; margin: 0; }
+        .m-fetch-sub { color: rgba(255,255,255,0.55); font-size: 0.68rem; font-weight: 500; margin-left: auto; }
+        .m-fetch-badge {
+          font-size: 0.58rem; letter-spacing: 0.08em; text-transform: uppercase;
+          padding: 0.18rem 0.5rem; border-radius: 9999px;
+          background: rgba(16,185,129,0.18); color: #6ee7b7;
+          border: 1px solid rgba(110,231,183,0.35);
+        }
+        .m-fetch-badge.mock { background: rgba(148,163,184,0.16); color: #cbd5e1; border-color: rgba(203,213,225,0.3); }
+        .m-fetch-badge.idle { background: rgba(148,163,184,0.1); color: #94a3b8; border-color: rgba(148,163,184,0.3); }
+
+        .m-fetch-hero { display: flex; align-items: center; gap: 0.875rem; margin-bottom: 0.875rem; }
+        .m-fetch-score {
+          width: 3.75rem; height: 3.75rem; border-radius: 9999px;
+          display: flex; align-items: center; justify-content: center;
+          font-size: 1.4rem; font-weight: 700; color: #fff; flex-shrink: 0;
+          border: 3px solid rgba(255,255,255,0.2);
+        }
+        .m-fetch-score.safe    { background: linear-gradient(135deg,#10b981,#059669); }
+        .m-fetch-score.warning { background: linear-gradient(135deg,#f59e0b,#d97706); }
+        .m-fetch-score.danger  { background: linear-gradient(135deg,#ef4444,#b91c1c); animation: mFetchPulse 1.1s ease-in-out infinite; }
+        @keyframes mFetchPulse { 0%,100%{opacity:1} 50%{opacity:0.78} }
+        .m-fetch-hero-body { flex: 1; min-width: 0; }
+        .m-fetch-level {
+          display: inline-flex; align-items: center; gap: 0.35rem;
+          font-size: 0.62rem; text-transform: uppercase; letter-spacing: 0.1em;
+          padding: 0.2rem 0.55rem; border-radius: 9999px;
+          background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.18);
+          color: #fff; font-weight: 600; margin-bottom: 0.35rem;
+        }
+        .m-fetch-level.critical { background: rgba(239,68,68,0.3); border-color: rgba(239,68,68,0.5); }
+        .m-fetch-level.warning  { background: rgba(245,158,11,0.3); border-color: rgba(245,158,11,0.5); }
+        .m-fetch-level.gentle   { background: rgba(110,231,183,0.25); border-color: rgba(110,231,183,0.45); }
+        .m-fetch-reco { font-size: 0.88rem; font-weight: 600; line-height: 1.35; color: #fff; }
+        .m-fetch-tip  { font-size: 0.72rem; color: rgba(255,255,255,0.75); margin-top: 0.25rem; line-height: 1.4; }
+
+        .m-fetch-meta { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.5rem; margin-bottom: 0.875rem; }
+        .m-fetch-meta-cell {
+          background: rgba(255,255,255,0.08);
+          border: 1px solid rgba(255,255,255,0.12);
+          border-radius: 0.625rem; padding: 0.55rem 0.45rem; text-align: center;
+        }
+        .m-fetch-meta-v { font-size: 0.92rem; font-weight: 700; color: #fff; }
+        .m-fetch-meta-l { font-size: 0.56rem; text-transform: uppercase; letter-spacing: 0.08em; color: rgba(255,255,255,0.6); margin-top: 0.15rem; }
+        .m-fetch-meta-v-small { font-size: 0.7rem !important; line-height: 1.2; }
+        .m-fetch-tip-idle { color: rgba(255,255,255,0.75); }
+
+        .m-fetch-incidents-head {
+          font-size: 0.62rem; text-transform: uppercase; letter-spacing: 0.1em;
+          color: rgba(255,255,255,0.55); font-weight: 600; margin-bottom: 0.45rem;
+        }
+        .m-fetch-incident {
+          display: flex; align-items: flex-start; gap: 0.55rem;
+          padding: 0.55rem 0.65rem; border-radius: 0.625rem;
+          background: rgba(255,255,255,0.06);
+          border: 1px solid rgba(255,255,255,0.1);
+          margin-bottom: 0.375rem;
+        }
+        .m-fetch-inc-bar {
+          width: 3px; align-self: stretch; border-radius: 99px; flex-shrink: 0;
+        }
+        .m-fetch-inc-bar.critical { background: #ef4444; }
+        .m-fetch-inc-bar.warning  { background: #f59e0b; }
+        .m-fetch-inc-bar.gentle   { background: #6ee7b7; }
+        .m-fetch-inc-bar.none     { background: #94a3b8; }
+        .m-fetch-inc-body { flex: 1; min-width: 0; }
+        .m-fetch-inc-msg { font-size: 0.78rem; color: #fff; font-weight: 500; line-height: 1.3; }
+        .m-fetch-inc-meta { font-size: 0.62rem; color: rgba(255,255,255,0.55); margin-top: 0.15rem; }
+        .m-fetch-inc-empty {
+          text-align: center; padding: 0.75rem;
+          font-size: 0.72rem; color: rgba(255,255,255,0.55);
+          background: rgba(255,255,255,0.04); border-radius: 0.625rem;
+          border: 1px dashed rgba(255,255,255,0.12);
+        }
 
         /* Live session card — only shown while a drive is being monitored */
         .m-live {
@@ -283,6 +506,9 @@ export default function MetricsPage() {
           </div>
 
           <div className="m-section">
+            {/* ── Fetch.ai SafetyOrchestratorAgent ───────────────────────── */}
+            <FetchAiPanel decision={decision} isLive={safety.isLive} lastUpdatedAt={safety.lastUpdatedAt} />
+
             {live.isActive && (
               <div
                 className={`m-live ${
@@ -343,7 +569,7 @@ export default function MetricsPage() {
               </div>
             )}
 
-            {!hasSessions && !live.isActive ? (
+            {!hasSessions && !live.isActive && !decision ? (
               <div className="m-empty">
                 <h3>No drive data yet</h3>
                 <p>Start a session on the Monitor tab — your metrics and AI insights will appear here.</p>

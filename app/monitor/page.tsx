@@ -7,7 +7,7 @@
  * eye open %, alert count, per-drive history, AI summary) live on Metrics;
  * this page is deliberately minimal — camera, mesh, danger state, and done.
  */
-import { useSyncExternalStore } from 'react';
+import { useEffect, useMemo, useSyncExternalStore } from 'react';
 import Link from 'next/link';
 import BottomNav from '@/components/BottomNav';
 import AlertBanner from '@/components/AlertBanner';
@@ -17,6 +17,7 @@ import {
   getCalibrationServerSnapshot,
 } from '@/lib/drowsiness';
 import { useDrowsinessDetector } from '@/lib/useDrowsinessDetector';
+import { useSafetyAgent } from '@/lib/safety-client';
 
 // ── Icons ────────────────────────────────────────────────────────────────
 const EyeIcon = (p: { className?: string }) => (
@@ -48,8 +49,43 @@ export default function Monitor() {
     stop,
     drowsinessState,
     faceDetected,
+    ear,
+    mar,
+    closedFrames,
+    blinkRate,
+    yawning,
+    setSessionMeta,
     error,
   } = useDrowsinessDetector({ drawMesh: true, enableAlerts: true, persistOnStop: true });
+
+  // Stable session id for the uAgents SafetyOrchestrator — regenerated
+  // whenever the detector restarts (keyed on isStarted) so each trip gets
+  // its own memory bucket on the agent side.
+  const sessionId = useMemo(
+    () => `session_${Date.now()}`,
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [isStarted],
+  );
+
+  // Fetch.ai bridge — posts telemetry every 2s while monitoring. The decision
+  // is pushed into the cross-page store via useSafetyAgent → Metrics reads it.
+  const { decision: agentDecision } = useSafetyAgent({
+    sessionId,
+    enabled: isStarted,
+    state: drowsinessState,
+    closedFrames,
+    ear,
+    mar,
+    blinkRate,
+    yawning,
+    calibrated,
+  });
+
+  useEffect(() => {
+    if (agentDecision?.tripScore != null) {
+      setSessionMeta({ agentTripScore: agentDecision.tripScore });
+    }
+  }, [agentDecision?.tripScore, setSessionMeta]);
 
   // ── Derived UI state ──
   const statusClass =

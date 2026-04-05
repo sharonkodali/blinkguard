@@ -14,6 +14,10 @@ import type {
   DrowsinessState,
   SignalKind,
 } from './safety-types';
+import {
+  publishSafetyDecision,
+  markSafetyDecisionIdle,
+} from './safetyDecisionStore';
 
 const API_PATH = '/api/safety';
 
@@ -75,11 +79,20 @@ export function useSafetyAgent(input: UseSafetyAgentInput) {
       ],
     };
     const d = await postTelemetry(ev);
-    if (d) setDecision(d);
+    if (d) {
+      setDecision(d);
+      // Mirror into the cross-page store so /metrics (and any other page)
+      // can render Fetch.ai data without owning the camera.
+      publishSafetyDecision(d, cur.sessionId);
+    }
   }, []);
 
   useEffect(() => {
-    if (!enabled) return;
+    if (!enabled) {
+      // Drive just ended — keep last decision visible, flag it idle.
+      markSafetyDecisionIdle();
+      return;
+    }
     // Send one immediately so the HUD populates without waiting a full tick.
     void send();
     const id = setInterval(send, intervalMs);
