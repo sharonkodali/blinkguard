@@ -138,7 +138,7 @@ export function useDrowsinessDetector(
     eyeOpenPct,
   ]);
 
-  // ── Alert trigger (vibration + speech) ─────────────────────────────────
+  // ── Alert trigger (vibration only — AlertBanner owns audio/speech) ────────
   const triggerAlert = useCallback(() => {
     if (!enableAlerts) return;
     const now = Date.now();
@@ -147,17 +147,9 @@ export function useDrowsinessDetector(
     lastAlertRef.current = now;
     setAlertCount((c) => c + 1);
 
+    // Aggressive vibration pattern — AlertBanner handles beeps + speech
     if (typeof navigator !== 'undefined' && navigator.vibrate) {
-      navigator.vibrate([600, 150, 600, 150, 600]);
-    }
-    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
-      window.speechSynthesis.cancel();
-      const u = new SpeechSynthesisUtterance(
-        'Warning! Eyes closing. Pull over safely now.',
-      );
-      u.rate = 1.1;
-      u.pitch = 1.2;
-      window.speechSynthesis.speak(u);
+      navigator.vibrate([700, 100, 700, 100, 700, 100, 700]);
     }
     setTimeout(() => {
       alertCoolingRef.current = false;

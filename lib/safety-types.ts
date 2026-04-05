@@ -79,6 +79,23 @@ export interface SafetyDecision {
   source: 'uagents' | 'mock';
 }
 
+// ── Pull-over spot recommendation ────────────────────────────────────────────
+
+export interface PulloverSpot {
+  name: string;
+  address: string;
+  /** "gas_station" | "rest_stop" | "parking" | "other" */
+  type: string;
+  distanceMeters: number;
+  lat: number;
+  lng: number;
+}
+
+export interface PulloverResponse {
+  spots: PulloverSpot[];
+  source: 'uagents' | 'fallback';
+}
+
 /** Calibration ping — fire once when the user completes the calibration wizard. */
 export interface CalibrationEvent {
   sessionId: string;

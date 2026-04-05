@@ -13,8 +13,12 @@ spot-check that both sides agree on the same telemetry.
 
 from __future__ import annotations
 
+import math
+import os
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Tuple
+
+import requests as _http  # renamed to avoid clash with uagents internals
 
 from models import AlertLevel, Incident, SafetyDecision, TelemetryEvent
 
@@ -226,3 +230,104 @@ def get_or_create_session(session_id: str) -> SessionMemory:
 
 def reset_session(session_id: str) -> None:
     _SESSIONS.pop(session_id, None)
+
+
+# ─── Pull-over spot finder (req: nearby safe stops) ──────────────────────────
+
+_PLACES_KEY = os.environ.get("GOOGLE_MAPS_API_KEY", "")
+_SEARCH_RADIUS_M = 5000
+_PLACE_TYPES = ["gas_station", "parking", "rest_stop"]
+_TYPE_LABELS = {
+    "gas_station": "Gas Station",
+    "parking": "Parking Area",
+    "rest_stop": "Rest Stop",
+}
+
+
+def _haversine_m(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
+    R = 6_371_000.0
+    phi1, phi2 = math.radians(lat1), math.radians(lat2)
+    d_phi = math.radians(lat2 - lat1)
+    d_lam = math.radians(lng2 - lng1)
+    a = math.sin(d_phi / 2) ** 2 + math.cos(phi1) * math.cos(phi2) * math.sin(d_lam / 2) ** 2
+    return R * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+
+
+def _mock_spots(lat: float, lng: float) -> list:
+    """Return plausible-looking mock spots when no API key is set."""
+    return [
+        {
+            "name": "Highway Rest Area",
+            "address": "0.8 mi ahead on highway",
+            "type": "rest_stop",
+            "distanceMeters": 1300.0,
+            "lat": lat + 0.006,
+            "lng": lng + 0.003,
+        },
+        {
+            "name": "Shell Gas Station",
+            "address": "Exit 42 off-ramp",
+            "type": "gas_station",
+            "distanceMeters": 2100.0,
+            "lat": lat + 0.010,
+            "lng": lng - 0.002,
+        },
+        {
+            "name": "Park & Rest Lot",
+            "address": "Side-road pulloff",
+            "type": "parking",
+            "distanceMeters": 3400.0,
+            "lat": lat - 0.012,
+            "lng": lng + 0.008,
+        },
+    ]
+
+
+def fetch_pullover_spots(lat: float, lng: float, max_results: int = 3) -> list:
+    """
+    Return up to `max_results` nearby safe pullover locations, sorted by
+    distance. Uses Google Places Nearby Search when GOOGLE_MAPS_API_KEY is set;
+    falls back to mock data so the demo always has something to show.
+    """
+    if not _PLACES_KEY:
+        return _mock_spots(lat, lng)
+
+    seen: set = set()
+    all_spots: list = []
+
+    for place_type in _PLACE_TYPES:
+        try:
+            resp = _http.get(
+                "https://maps.googleapis.com/maps/api/place/nearbysearch/json",
+                params={
+                    "location": f"{lat},{lng}",
+                    "radius": _SEARCH_RADIUS_M,
+                    "type": place_type,
+                    "key": _PLACES_KEY,
+                },
+                timeout=3,
+            )
+            if not resp.ok:
+                continue
+            for place in resp.json().get("results", [])[:4]:
+                pid = place.get("place_id", "")
+                if pid in seen:
+                    continue
+                seen.add(pid)
+                loc = place["geometry"]["location"]
+                dist = _haversine_m(lat, lng, loc["lat"], loc["lng"])
+                all_spots.append(
+                    {
+                        "name": place["name"],
+                        "address": place.get("vicinity", ""),
+                        "type": place_type,
+                        "distanceMeters": round(dist, 1),
+                        "lat": loc["lat"],
+                        "lng": loc["lng"],
+                    }
+                )
+        except Exception:  # noqa: BLE001
+            continue
+
+    all_spots.sort(key=lambda s: s["distanceMeters"])
+    return all_spots[:max_results] if all_spots else _mock_spots(lat, lng)

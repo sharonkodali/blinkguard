@@ -36,11 +36,19 @@ from typing import Optional
 
 from uagents import Agent, Bureau, Context
 
-from logic import get_or_create_session, reset_session, run_safety_decision
+from logic import (
+    fetch_pullover_spots,
+    get_or_create_session,
+    reset_session,
+    run_safety_decision,
+)
 from models import (
     Ack,
     CalibrationEvent,
     Incident,
+    PulloverRequest,
+    PulloverResponse,
+    PulloverSpot,
     SafetyDecision,
     TelemetryEvent,
 )
@@ -123,6 +131,28 @@ async def on_calibration(ctx: Context, req: CalibrationEvent) -> Ack:
         f"MAR={req.marThreshold:.3f}"
     )
     return Ack(ok=True, message="calibration stored")
+
+
+@safety_orchestrator.on_rest_post("/pullover", PulloverRequest, PulloverResponse)
+async def on_pullover(ctx: Context, req: PulloverRequest) -> PulloverResponse:
+    """
+    Return nearby safe pullover locations for the driver's current coordinates.
+    Called by the frontend when a warning or danger alert fires. Uses Google
+    Places Nearby Search when GOOGLE_MAPS_API_KEY is set; returns mock data
+    otherwise so the demo always has something useful to show.
+    """
+    import asyncio
+
+    loop = asyncio.get_event_loop()
+    spots_data = await loop.run_in_executor(
+        None, fetch_pullover_spots, req.lat, req.lng
+    )
+    spots = [PulloverSpot(**s) for s in spots_data]
+    ctx.logger.info(
+        f"PulloverAgent: ({req.lat:.4f},{req.lng:.4f}) level={req.alertLevel} "
+        f"→ {len(spots)} spots"
+    )
+    return PulloverResponse(spots=spots, source="uagents")
 
 
 @safety_orchestrator.on_rest_post("/reset", CalibrationEvent, Ack)

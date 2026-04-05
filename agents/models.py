@@ -79,3 +79,25 @@ class CalibrationEvent(Model):
 class Ack(Model):
     ok: bool
     message: str = ""
+
+
+# ── Pull-over spot recommendation ────────────────────────────────────────────
+
+class PulloverSpot(Model):
+    name: str
+    address: str
+    type: str          # "gas_station" | "rest_stop" | "parking" | "other"
+    distanceMeters: float
+    lat: float
+    lng: float
+
+
+class PulloverRequest(Model):
+    lat: float
+    lng: float
+    alertLevel: AlertLevel
+
+
+class PulloverResponse(Model):
+    spots: List[PulloverSpot]
+    source: Literal["uagents", "mock"] = "uagents"

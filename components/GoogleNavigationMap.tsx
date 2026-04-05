@@ -5,12 +5,8 @@ import { GoogleMap, Marker, Polyline, useJsApiLoader } from '@react-google-maps/
 import type { DrowsinessState } from '@/lib/drowsiness';
 
 const libraries: ('geometry')[] = ['geometry'];
-
 const containerStyle: CSSProperties = { width: '100%', height: '100%' };
-
 const defaultCenter = { lat: 37.7749, lng: -122.4194 };
-
-/** Meters — advance to next maneuver when GPS is within this radius of the step end point. */
 const STEP_COMPLETE_RADIUS_M = 42;
 
 export type RouteMeta = { destinationLabel: string; originLabel?: string };
@@ -32,10 +28,13 @@ export type RouteStep = {
 
 type RouteInfo = {
   durationText: string;
+  durationSeconds: number;
   distanceText: string;
   firstInstruction: string;
   steps: RouteStep[];
 };
+
+// ── Helpers ─────────────────────────────────────────────────────────────────
 
 function haversineMeters(a: { lat: number; lng: number }, b: { lat: number; lng: number }): number {
   const R = 6371000;
@@ -43,35 +42,126 @@ function haversineMeters(a: { lat: number; lng: number }, b: { lat: number; lng:
   const dLng = ((b.lng - a.lng) * Math.PI) / 180;
   const lat1 = (a.lat * Math.PI) / 180;
   const lat2 = (b.lat * Math.PI) / 180;
-  const x =
-    Math.sin(dLat / 2) ** 2 + Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLng / 2) ** 2;
+  const x = Math.sin(dLat / 2) ** 2 + Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLng / 2) ** 2;
   return 2 * R * Math.atan2(Math.sqrt(x), Math.sqrt(1 - x));
 }
 
-function googleMapsDirectionsUrl(
-  origin: { lat: number; lng: number },
-  destination: string,
-): string {
-  const o = `${origin.lat},${origin.lng}`;
-  const params = new URLSearchParams({
-    api: '1',
-    origin: o,
-    destination,
-    travelmode: 'driving',
-  });
-  return `https://www.google.com/maps/dir/?${params.toString()}`;
+
+function arrivalTime(durationSeconds: number): string {
+  const d = new Date(Date.now() + durationSeconds * 1000);
+  return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
 }
+
+// ── Turn direction parsing ───────────────────────────────────────────────────
+
+type TurnDir = 'straight' | 'right' | 'left' | 'slight-right' | 'slight-left' | 'u-turn' | 'arrived' | 'merge' | 'roundabout';
+
+function getTurnDir(instruction: string): TurnDir {
+  const t = instruction.toLowerCase();
+  if (t.includes('arriv') || t.includes('destination')) return 'arrived';
+  if (t.includes('u-turn') || t.includes('uturn')) return 'u-turn';
+  if (t.includes('roundabout') || t.includes('rotary')) return 'roundabout';
+  if (t.includes('merge') || t.includes('keep right') || t.includes('keep left')) return 'merge';
+  if (t.includes('slight right') || t.includes('bear right')) return 'slight-right';
+  if (t.includes('slight left') || t.includes('bear left')) return 'slight-left';
+  if ((t.includes('turn right') || t.includes('right on') || t.includes('right onto') || t.includes('right at')) && !t.includes('left')) return 'right';
+  if ((t.includes('turn left') || t.includes('left on') || t.includes('left onto') || t.includes('left at')) && !t.includes('right')) return 'left';
+  return 'straight';
+}
+
+function TurnIcon({ dir, size = 44 }: { dir: TurnDir; size?: number }) {
+  const S = size;
+  const strokeColor = '#fff';
+  const sw = Math.round(S / 13);
+  const c = S / 2;
+
+  const icons: Record<TurnDir, React.ReactNode> = {
+    straight: (
+      <g>
+        <line x1={c} y1={S * 0.75} x2={c} y2={S * 0.18} stroke={strokeColor} strokeWidth={sw} strokeLinecap="round" />
+        <polyline points={`${c - S * 0.22},${S * 0.35} ${c},${S * 0.14} ${c + S * 0.22},${S * 0.35}`} fill="none" stroke={strokeColor} strokeWidth={sw} strokeLinecap="round" strokeLinejoin="round" />
+      </g>
+    ),
+    right: (
+      <g>
+        <path d={`M${c - S * 0.16} ${S * 0.75} L${c - S * 0.16} ${c - S * 0.04} Q${c - S * 0.16} ${S * 0.22} ${c + S * 0.04} ${S * 0.22} L${c + S * 0.24} ${S * 0.22}`} fill="none" stroke={strokeColor} strokeWidth={sw} strokeLinecap="round" strokeLinejoin="round" />
+        <polyline points={`${c + S * 0.06},${S * 0.35} ${c + S * 0.26},${S * 0.22} ${c + S * 0.06},${S * 0.09}`} fill="none" stroke={strokeColor} strokeWidth={sw} strokeLinecap="round" strokeLinejoin="round" />
+      </g>
+    ),
+    left: (
+      <g>
+        <path d={`M${c + S * 0.16} ${S * 0.75} L${c + S * 0.16} ${c - S * 0.04} Q${c + S * 0.16} ${S * 0.22} ${c - S * 0.04} ${S * 0.22} L${c - S * 0.24} ${S * 0.22}`} fill="none" stroke={strokeColor} strokeWidth={sw} strokeLinecap="round" strokeLinejoin="round" />
+        <polyline points={`${c - S * 0.06},${S * 0.35} ${c - S * 0.26},${S * 0.22} ${c - S * 0.06},${S * 0.09}`} fill="none" stroke={strokeColor} strokeWidth={sw} strokeLinecap="round" strokeLinejoin="round" />
+      </g>
+    ),
+    'slight-right': (
+      <g>
+        <path d={`M${c - S * 0.1} ${S * 0.76} L${c - S * 0.1} ${c + S * 0.05} Q${c - S * 0.04} ${S * 0.25} ${c + S * 0.22} ${S * 0.2}`} fill="none" stroke={strokeColor} strokeWidth={sw} strokeLinecap="round" />
+        <polyline points={`${c + S * 0.04},${S * 0.33} ${c + S * 0.24},${S * 0.19} ${c + S * 0.12},${S * 0.06}`} fill="none" stroke={strokeColor} strokeWidth={sw} strokeLinecap="round" strokeLinejoin="round" />
+      </g>
+    ),
+    'slight-left': (
+      <g>
+        <path d={`M${c + S * 0.1} ${S * 0.76} L${c + S * 0.1} ${c + S * 0.05} Q${c + S * 0.04} ${S * 0.25} ${c - S * 0.22} ${S * 0.2}`} fill="none" stroke={strokeColor} strokeWidth={sw} strokeLinecap="round" />
+        <polyline points={`${c - S * 0.04},${S * 0.33} ${c - S * 0.24},${S * 0.19} ${c - S * 0.12},${S * 0.06}`} fill="none" stroke={strokeColor} strokeWidth={sw} strokeLinecap="round" strokeLinejoin="round" />
+      </g>
+    ),
+    'u-turn': (
+      <g>
+        <path d={`M${c - S * 0.14} ${S * 0.76} L${c - S * 0.14} ${c - S * 0.1} A${S * 0.14} ${S * 0.14} 0 0 1 ${c + S * 0.14} ${c - S * 0.1} L${c + S * 0.14} ${S * 0.44}`} fill="none" stroke={strokeColor} strokeWidth={sw} strokeLinecap="round" />
+        <polyline points={`${c + S * 0.01},${S * 0.32} ${c + S * 0.15},${S * 0.44} ${c + S * 0.28},${S * 0.32}`} fill="none" stroke={strokeColor} strokeWidth={sw} strokeLinecap="round" strokeLinejoin="round" />
+      </g>
+    ),
+    arrived: (
+      <g>
+        <circle cx={c} cy={c - S * 0.1} r={S * 0.22} fill={strokeColor} />
+        <line x1={c} y1={c + S * 0.12} x2={c} y2={S * 0.76} stroke={strokeColor} strokeWidth={sw} strokeLinecap="round" />
+      </g>
+    ),
+    merge: (
+      <g>
+        <line x1={c} y1={S * 0.8} x2={c} y2={S * 0.18} stroke={strokeColor} strokeWidth={sw} strokeLinecap="round" />
+        <path d={`M${c + S * 0.28} ${S * 0.7} Q${c + S * 0.28} ${S * 0.4} ${c} ${S * 0.38}`} fill="none" stroke={strokeColor} strokeWidth={sw} strokeLinecap="round" />
+        <polyline points={`${c - S * 0.2},${S * 0.26} ${c},${S * 0.14} ${c + S * 0.2},${S * 0.26}`} fill="none" stroke={strokeColor} strokeWidth={sw} strokeLinecap="round" strokeLinejoin="round" />
+      </g>
+    ),
+    roundabout: (
+      <g>
+        <circle cx={c} cy={c} r={S * 0.22} fill="none" stroke={strokeColor} strokeWidth={sw} />
+        <polyline points={`${c + S * 0.22},${c - S * 0.16} ${c + S * 0.22},${c + S * 0.16}`} stroke={strokeColor} strokeWidth={sw} strokeLinecap="round" />
+        <polyline points={`${c + S * 0.08},${c - S * 0.3} ${c + S * 0.22},${c - S * 0.16} ${c + S * 0.36},${c - S * 0.3}`} fill="none" stroke={strokeColor} strokeWidth={sw} strokeLinecap="round" strokeLinejoin="round" />
+      </g>
+    ),
+  };
+
+  return (
+    <svg width={S} height={S} viewBox={`0 0 ${S} ${S}`} aria-hidden>
+      {icons[dir]}
+    </svg>
+  );
+}
+
+// ── Voice announcement ───────────────────────────────────────────────────────
+
+function speak(text: string) {
+  if (typeof window === 'undefined' || !('speechSynthesis' in window)) return;
+  window.speechSynthesis.cancel();
+  const u = new SpeechSynthesisUtterance(text);
+  u.rate = 0.98;
+  u.pitch = 1.0;
+  u.volume = 1.0;
+  window.speechSynthesis.speak(u);
+}
+
+// ── Main export ──────────────────────────────────────────────────────────────
 
 export default function GoogleNavigationMap(props: Props) {
   const apiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY ?? '';
   if (!apiKey.trim()) {
     return (
-      <div className="gnw-missing">
-        <p className="gnw-missing-title">Maps not configured</p>
-        <p className="gnw-missing-text">
-          Add <code>NEXT_PUBLIC_GOOGLE_MAPS_API_KEY</code> to <code>.env.local</code>. Enable <strong>Maps JavaScript API</strong>{' '}
-          and <strong>Routes API</strong> on that key. Restart the dev server.
-        </p>
+      <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 8, padding: 24, background: '#0f172a', color: '#94a3b8', fontSize: '0.8rem', textAlign: 'center' }}>
+        <p style={{ fontWeight: 600, color: '#e2e8f0', margin: 0 }}>Maps not configured</p>
+        <p style={{ margin: 0, maxWidth: 320, lineHeight: 1.55 }}>Add <code style={{ background: '#1e293b', padding: '2px 6px', borderRadius: 4 }}>NEXT_PUBLIC_GOOGLE_MAPS_API_KEY</code> to <code style={{ background: '#1e293b', padding: '2px 6px', borderRadius: 4 }}>.env.local</code> and restart.</p>
       </div>
     );
   }
@@ -79,11 +169,7 @@ export default function GoogleNavigationMap(props: Props) {
 }
 
 function GoogleNavigationInner({ drowsinessState, onRouteMetaChange, apiKey }: Props & { apiKey: string }) {
-  const { isLoaded, loadError } = useJsApiLoader({
-    id: 'blinkguard-google-maps',
-    googleMapsApiKey: apiKey,
-    libraries,
-  });
+  const { isLoaded, loadError } = useJsApiLoader({ id: 'blinkguard-google-maps', googleMapsApiKey: apiKey, libraries });
 
   const [map, setMap] = useState<google.maps.Map | null>(null);
   const [encodedPolyline, setEncodedPolyline] = useState<string | null>(null);
@@ -95,79 +181,84 @@ function GoogleNavigationInner({ drowsinessState, onRouteMetaChange, apiKey }: P
   const [destText, setDestText] = useState('');
   const [navError, setNavError] = useState<string | null>(null);
   const [isRouting, setIsRouting] = useState(false);
-  const currentStepRowRef = useRef<HTMLDivElement | null>(null);
+  const [searchFocused, setSearchFocused] = useState(false);
+  const [showList, setShowList] = useState(false);
   const didFitRouteRef = useRef(false);
+  const prevStepRef = useRef(-1);
 
+  // GPS tracking
   useEffect(() => {
     if (!navigator.geolocation) return;
     const id = navigator.geolocation.watchPosition(
-      (pos) => {
-        setUserPos({
-          lat: pos.coords.latitude,
-          lng: pos.coords.longitude,
-        });
-      },
+      (pos) => setUserPos({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
       () => {},
       { enableHighAccuracy: true, maximumAge: 3000 },
     );
     return () => navigator.geolocation.clearWatch(id);
   }, []);
 
-  const center = userPos ?? defaultCenter;
-
+  // Decode polyline
   useEffect(() => {
     if (!isLoaded || !encodedPolyline || !window.google?.maps?.geometry?.encoding) return;
     try {
       const path = google.maps.geometry.encoding.decodePath(encodedPolyline);
       setRoutePath(path.map((p) => ({ lat: p.lat(), lng: p.lng() })));
     } catch {
-      setNavError('Could not decode route polyline.');
+      setNavError('Could not decode route.');
       setEncodedPolyline(null);
       setRouteInfo(null);
     }
   }, [isLoaded, encodedPolyline]);
 
+  // Fit bounds once on new route
   useEffect(() => {
-    if (!map || !routePath?.length) return;
-    if (didFitRouteRef.current) return;
+    if (!map || !routePath?.length || didFitRouteRef.current) return;
     const bounds = new google.maps.LatLngBounds();
     routePath.forEach((p) => bounds.extend(p));
-    map.fitBounds(bounds, 48);
+    map.fitBounds(bounds, { top: 100, bottom: 140, left: 20, right: 20 });
     didFitRouteRef.current = true;
   }, [map, routePath]);
 
-  /** Keep the map centered on your position (before and during navigation). */
+  // Follow user position
   useEffect(() => {
     if (!map || !userPos) return;
-    map.panTo(userPos);
-  }, [map, userPos]);
+    if (routePath?.length) {
+      map.panTo(userPos);
+      map.setZoom(17);
+    } else {
+      map.panTo(userPos);
+    }
+  }, [map, userPos, routePath]);
 
-  /** Advance step when GPS nears each maneuver end (same idea as in-car nav). */
+  // GPS step advance
   useEffect(() => {
     if (!userPos || !routeInfo?.steps.length) return;
     const steps = routeInfo.steps;
-    const idx = currentStepIndex;
-    const step = steps[idx];
+    const step = steps[currentStepIndex];
     if (!step || step.endLat == null || step.endLng == null) return;
-
     const d = haversineMeters(userPos, { lat: step.endLat, lng: step.endLng });
-    const last = idx >= steps.length - 1;
-    if (last && d < STEP_COMPLETE_RADIUS_M * 1.2) {
+    if (currentStepIndex >= steps.length - 1 && d < STEP_COMPLETE_RADIUS_M * 1.2) {
       setArrived(true);
-      return;
-    }
-    if (!last && d < STEP_COMPLETE_RADIUS_M) {
+      speak('You have arrived at your destination.');
+    } else if (currentStepIndex < steps.length - 1 && d < STEP_COMPLETE_RADIUS_M) {
       setCurrentStepIndex((i) => Math.min(i + 1, steps.length - 1));
     }
   }, [userPos, routeInfo, currentStepIndex]);
 
+  // Voice announce on step change
   useEffect(() => {
-    currentStepRowRef.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
-  }, [currentStepIndex]);
+    if (!routeInfo?.steps.length) return;
+    if (currentStepIndex === prevStepRef.current) return;
+    prevStepRef.current = currentStepIndex;
+    const step = routeInfo.steps[currentStepIndex];
+    if (step) speak(step.instruction);
+  }, [currentStepIndex, routeInfo]);
 
+  // Reset on new route
   useEffect(() => {
     setArrived(false);
     setCurrentStepIndex(0);
+    prevStepRef.current = -1;
     didFitRouteRef.current = false;
   }, [encodedPolyline]);
 
@@ -177,6 +268,7 @@ function GoogleNavigationInner({ drowsinessState, onRouteMetaChange, apiKey }: P
     setRouteInfo(null);
     setCurrentStepIndex(0);
     setArrived(false);
+    prevStepRef.current = -1;
     didFitRouteRef.current = false;
     setDestText('');
     setNavError(null);
@@ -185,20 +277,13 @@ function GoogleNavigationInner({ drowsinessState, onRouteMetaChange, apiKey }: P
 
   const computeRoute = useCallback(async () => {
     const destination = destText.trim();
-    if (!userPos) {
-      setNavError('Waiting for GPS… Allow location access for turn-by-turn.');
-      return;
-    }
-    if (!destination) {
-      setNavError('Enter a destination address or place name.');
-      return;
-    }
+    if (!userPos) { setNavError('Waiting for GPS location…'); return; }
+    if (!destination) { setNavError('Enter a destination.'); return; }
     setIsRouting(true);
     setNavError(null);
     setRoutePath(null);
     setRouteInfo(null);
     setEncodedPolyline(null);
-
     try {
       const res = await fetch('/api/maps/compute-route', {
         method: 'POST',
@@ -206,209 +291,235 @@ function GoogleNavigationInner({ drowsinessState, onRouteMetaChange, apiKey }: P
         body: JSON.stringify({ origin: userPos, destination }),
       });
       const data = (await res.json()) as {
-        error?: string;
-        hint?: string;
-        encodedPolyline?: string;
-        durationText?: string;
-        distanceText?: string;
-        firstInstruction?: string;
-        steps?: RouteStep[];
-        originLabel?: string;
-        destinationLabel?: string;
+        error?: string; hint?: string;
+        encodedPolyline?: string; durationText?: string; durationSeconds?: number;
+        distanceText?: string; firstInstruction?: string; steps?: RouteStep[];
+        originLabel?: string; destinationLabel?: string;
       };
-
       if (!res.ok) {
-        const msg = [data.error, data.hint].filter(Boolean).join(' — ');
-        setNavError(
-          msg ||
-            'Could not compute route. Enable Routes API and use a server key (see .env.example).',
-        );
+        setNavError([data.error, data.hint].filter(Boolean).join(' — ') || 'Route failed.');
         onRouteMetaChange?.(null);
         return;
       }
-
-      if (!data.encodedPolyline) {
-        setNavError('No route returned.');
-        onRouteMetaChange?.(null);
-        return;
-      }
-
+      if (!data.encodedPolyline) { setNavError('No route returned.'); onRouteMetaChange?.(null); return; }
       const steps = Array.isArray(data.steps) ? data.steps : [];
       setEncodedPolyline(data.encodedPolyline);
-      setRouteInfo({
-        durationText: data.durationText ?? '—',
-        distanceText: data.distanceText ?? '—',
-        firstInstruction: data.firstInstruction ?? '',
-        steps,
-      });
+      setRouteInfo({ durationText: data.durationText ?? '—', durationSeconds: data.durationSeconds ?? 0, distanceText: data.distanceText ?? '—', firstInstruction: data.firstInstruction ?? '', steps });
       setCurrentStepIndex(0);
       setArrived(false);
-      onRouteMetaChange?.({
-        destinationLabel: data.destinationLabel ?? destination,
-        originLabel: data.originLabel,
-      });
-    } catch {
-      setNavError('Network error while computing route.');
-      onRouteMetaChange?.(null);
-    } finally {
-      setIsRouting(false);
-    }
+      onRouteMetaChange?.({ destinationLabel: data.destinationLabel ?? destination, originLabel: data.originLabel });
+      if (steps[0]) speak(steps[0].instruction);
+    } catch { setNavError('Network error.'); onRouteMetaChange?.(null); }
+    finally { setIsRouting(false); }
   }, [userPos, destText, onRouteMetaChange]);
 
-  const ring =
-    drowsinessState === 'danger'
-      ? 'gnw-shell gnw-ring-danger'
-      : drowsinessState === 'warning'
-        ? 'gnw-shell gnw-ring-warn'
-        : 'gnw-shell';
-
   if (loadError) {
-    return (
-      <div className="gnw-missing">
-        <p className="gnw-missing-title">Map failed to load</p>
-        <p className="gnw-missing-text">Check the browser console and your API key restrictions.</p>
-      </div>
-    );
+    return <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#94a3b8', fontSize: '0.8rem', background: '#0f172a' }}>Map failed to load. Check your API key.</div>;
   }
-
   if (!isLoaded) {
-    return (
-      <div className="gnw-loading">
-        <span className="gnw-loading-dot" />
-        Loading navigation…
-      </div>
-    );
+    return <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#94a3b8', fontSize: '0.8rem', background: '#0f172a', gap: 8 }}>
+      <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#6366f1', animation: 'gnw-pulse 1s ease-in-out infinite', display: 'inline-block' }} />
+      Loading map…
+    </div>;
   }
-
-  const start = routePath?.[0];
-  const end = routePath?.length ? routePath[routePath.length - 1] : null;
 
   const steps = routeInfo?.steps ?? [];
   const currentStep = steps[currentStepIndex];
-  const destTrim = destText.trim();
-  const gmapsUrl =
-    userPos && destTrim ? googleMapsDirectionsUrl(userPos, destTrim) : null;
+  const isNavigating = !!routeInfo;
+  const turnDir = currentStep ? getTurnDir(currentStep.instruction) : 'straight';
+  const nextStep = steps[currentStepIndex + 1];
+  const dangerBg = drowsinessState === 'danger' ? '#7f1d1d' : drowsinessState === 'warning' ? '#78350f' : '#1a3a2d';
+
+  const css = `
+    @keyframes gnw-pulse { 0%,100%{opacity:1} 50%{opacity:0.35} }
+    @keyframes gnw-fadein { from{opacity:0;transform:translateY(-6px)} to{opacity:1;transform:translateY(0)} }
+
+    .gnw-root { position:relative; width:100%; height:100%; background:#e8eaed; }
+
+    /* ── Search bar (pre-navigation) ─────────────────────────────── */
+    .gnw-search {
+      position:absolute; top:0; left:0; right:0; z-index:1000;
+      padding:10px 10px 0;
+    }
+    .gnw-search-inner {
+      background:#fff; border-radius:24px;
+      box-shadow:0 2px 12px rgba(0,0,0,0.18);
+      overflow:hidden;
+    }
+    .gnw-search-row {
+      display:flex; align-items:center; gap:0; padding:0 4px 0 16px;
+    }
+    .gnw-search-input {
+      flex:1; border:none; outline:none; font-size:0.9rem; line-height:1.2;
+      padding:14px 4px; background:transparent; color:#202124;
+      font-family:inherit;
+    }
+    .gnw-search-input::placeholder { color:#9aa0a6; }
+    .gnw-search-nav-btn {
+      -webkit-appearance:none; appearance:none;
+      background:#1a73e8; color:#fff; border:none; border-radius:20px;
+      padding:10px 18px; font-size:0.82rem; font-weight:600;
+      cursor:pointer; font-family:inherit; white-space:nowrap;
+      margin:6px 4px 6px 0;
+    }
+    .gnw-search-nav-btn:disabled { opacity:0.55; }
+    .gnw-search-clear {
+      -webkit-appearance:none; appearance:none;
+      background:transparent; border:none; color:#5f6368;
+      font-size:1.1rem; cursor:pointer; padding:10px 8px; line-height:1;
+    }
+    .gnw-search-dest-row {
+      padding:0 16px 4px; font-size:0.72rem; color:#5f6368;
+      display:flex; align-items:center; gap:6px;
+    }
+    .gnw-search-dest-dot { width:8px; height:8px; border-radius:50%; background:#ea4335; flex-shrink:0; }
+    .gnw-search-dest-label { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+
+    /* ── Top navigation banner (active route) ────────────────────── */
+    .gnw-top-banner {
+      position:absolute; top:0; left:0; right:0; z-index:1000;
+      display:flex; align-items:stretch; gap:0; min-height:80px;
+      animation:gnw-fadein 0.25s ease;
+      box-shadow:0 3px 14px rgba(0,0,0,0.25);
+    }
+    .gnw-banner-icon {
+      display:flex; align-items:center; justify-content:center;
+      min-width:80px; padding:12px 14px; flex-shrink:0;
+    }
+    .gnw-banner-text {
+      flex:1; display:flex; flex-direction:column; justify-content:center;
+      padding:12px 14px 12px 0; min-width:0;
+    }
+    .gnw-banner-distance {
+      font-size:0.78rem; font-weight:500; margin-bottom:3px; opacity:0.9;
+      letter-spacing:0.02em;
+    }
+    .gnw-banner-street {
+      font-size:1.15rem; font-weight:700; line-height:1.25;
+      overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+    }
+    .gnw-banner-next {
+      font-size:0.68rem; margin-top:5px; opacity:0.78; line-height:1.3;
+      overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+    }
+
+    /* ── Bottom ETA strip ────────────────────────────────────────── */
+    .gnw-eta {
+      position:absolute; bottom:0; left:0; right:0; z-index:1000;
+      background:#fff; border-radius:18px 18px 0 0;
+      box-shadow:0 -2px 16px rgba(0,0,0,0.13);
+      padding:14px 16px calc(14px + env(safe-area-inset-bottom,0px));
+      animation:gnw-fadein 0.25s ease;
+    }
+    .gnw-eta-row {
+      display:flex; align-items:center; gap:0;
+    }
+    .gnw-eta-stat {
+      flex:1; text-align:center;
+    }
+    .gnw-eta-val {
+      font-size:1.05rem; font-weight:700; color:#202124; line-height:1.1;
+      display:block;
+    }
+    .gnw-eta-lbl {
+      font-size:0.62rem; color:#5f6368; margin-top:2px; display:block;
+    }
+    .gnw-eta-divider {
+      width:1px; height:32px; background:#e0e0e0; flex-shrink:0; margin:0 2px;
+    }
+    .gnw-eta-exit {
+      -webkit-appearance:none; appearance:none;
+      background:#ea4335; color:#fff; border:none; border-radius:22px;
+      padding:11px 20px; font-size:0.85rem; font-weight:700;
+      cursor:pointer; font-family:inherit; margin-left:10px;
+      box-shadow:0 2px 8px rgba(234,67,53,0.35);
+    }
+    .gnw-eta-gmaps {
+      display:block; text-align:center; margin-top:10px;
+      font-size:0.72rem; color:#1a73e8; text-decoration:none; font-weight:600;
+    }
+
+    /* ── Arrived card ─────────────────────────────────────────────── */
+    .gnw-arrived {
+      position:absolute; bottom:0; left:0; right:0; z-index:1000;
+      background:#fff; border-radius:18px 18px 0 0;
+      box-shadow:0 -2px 16px rgba(0,0,0,0.13);
+      padding:22px 20px calc(20px + env(safe-area-inset-bottom,0px));
+      text-align:center; animation:gnw-fadein 0.25s ease;
+    }
+    .gnw-arrived-pin { font-size:2.2rem; margin-bottom:8px; }
+    .gnw-arrived-title { font-size:1.15rem; font-weight:700; color:#202124; margin:0 0 4px; }
+    .gnw-arrived-sub { font-size:0.78rem; color:#5f6368; margin:0 0 14px; }
+    .gnw-arrived-done {
+      -webkit-appearance:none; appearance:none;
+      background:#1a73e8; color:#fff; border:none; border-radius:22px;
+      padding:11px 28px; font-size:0.88rem; font-weight:700; cursor:pointer; font-family:inherit;
+    }
+
+    /* ── Error toast ─────────────────────────────────────────────── */
+    .gnw-err {
+      position:absolute; bottom:80px; left:12px; right:12px; z-index:1001;
+      background:rgba(234,67,53,0.95); color:#fff; border-radius:10px;
+      padding:10px 14px; font-size:0.75rem; text-align:center;
+      box-shadow:0 4px 14px rgba(234,67,53,0.35); pointer-events:none;
+    }
+
+    /* ── Search mode step list (hidden for now, expandable later) ── */
+    .gnw-steps-sheet {
+      position:absolute; bottom:0; left:0; right:0; z-index:900;
+      background:#fff; border-radius:18px 18px 0 0;
+      box-shadow:0 -2px 16px rgba(0,0,0,0.1);
+      max-height:50vh; overflow-y:auto;
+      -webkit-overflow-scrolling:touch;
+      padding:8px 0 calc(8px + env(safe-area-inset-bottom,0px));
+    }
+    .gnw-steps-title {
+      font-size:0.62rem; font-weight:700; letter-spacing:0.12em; color:#5f6368;
+      padding:8px 16px 4px; text-transform:uppercase;
+    }
+    .gnw-step-item {
+      display:flex; align-items:flex-start; gap:12px;
+      padding:10px 16px; border-bottom:1px solid #f1f3f4;
+    }
+    .gnw-step-item.active { background:#e8f0fe; }
+    .gnw-step-num-badge {
+      width:24px; height:24px; border-radius:50%; background:#dadce0;
+      display:flex; align-items:center; justify-content:center;
+      font-size:0.65rem; font-weight:700; color:#3c4043; flex-shrink:0;
+      margin-top:2px;
+    }
+    .gnw-step-item.active .gnw-step-num-badge { background:#1a73e8; color:#fff; }
+    .gnw-step-inst-text { font-size:0.82rem; color:#202124; line-height:1.4; margin:0; }
+    .gnw-step-dist-text { font-size:0.68rem; color:#5f6368; margin-top:3px; }
+
+    /* ── List toggle ─────────────────────────────────────────────── */
+    .gnw-list-toggle {
+      position:absolute; right:12px; z-index:999;
+      width:44px; height:44px; border-radius:50%;
+      background:#fff; border:none; cursor:pointer;
+      display:flex; align-items:center; justify-content:center;
+      box-shadow:0 2px 8px rgba(0,0,0,0.18);
+      font-size:1.1rem; color:#5f6368;
+    }
+  `;
 
   return (
     <>
-      <style>{`
-        .gnw-shell { position: relative; width: 100%; height: 100%; min-height: 280px; min-height: max(42dvh, 260px); border-radius: var(--radius, 12px); overflow: hidden; transition: box-shadow 0.35s; touch-action: pan-x pan-y pinch-zoom; }
-        .gnw-ring-warn { box-shadow: 0 0 0 2px rgba(180, 160, 220, 0.5); }
-        .gnw-ring-danger { box-shadow: 0 0 0 2px rgba(200, 120, 180, 0.65); }
-        .gnw-missing { height: 100%; min-height: 420px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; padding: 24px; text-align: center; background: var(--surface, #1a1a2e); border: 1px dashed var(--border, #333); border-radius: var(--radius, 12px); }
-        .gnw-missing-title { font-size: 0.85rem; font-weight: 600; color: var(--text, #eee); margin: 0; }
-        .gnw-missing-text { font-size: 0.72rem; color: var(--text-faint, #888); max-width: 340px; line-height: 1.55; margin: 0; }
-        .gnw-missing-text code { font-size: 0.65rem; background: var(--surface2, #252540); padding: 2px 6px; border-radius: 4px; }
-        .gnw-loading { height: 100%; min-height: 420px; display: flex; align-items: center; justify-content: center; gap: 10px; font-size: 0.8rem; color: var(--text-muted, #aaa); background: var(--surface, #1a1a2e); border-radius: var(--radius, 12px); }
-        .gnw-loading-dot { width: 8px; height: 8px; border-radius: 99px; background: var(--blue-soft, #8b8bd4); animation: gnw-pulse 1s ease-in-out infinite; }
-        @keyframes gnw-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
-        .gnw-bar {
-          position: absolute; top: 10px; left: 10px; right: 10px;
-          z-index: 1000;
-          pointer-events: none;
-        }
-        .gnw-bar-inner {
-          pointer-events: auto;
-          background: rgba(15, 14, 71, 0.98);
-          border: 1px solid rgba(255, 255, 255, 0.14);
-          border-radius: 10px;
-          padding: 10px 12px;
-          box-shadow: 0 6px 28px rgba(0, 0, 0, 0.45);
-          max-width: 100%;
-        }
-        .gnw-ac-wrap { width: 100%; }
-        .gnw-ac-wrap input {
-          width: 100%; box-sizing: border-box; padding: 10px 12px; border-radius: 8px;
-          border: 1px solid rgba(255, 255, 255, 0.18); background: rgba(8, 8, 40, 0.85); color: #f0f0f5;
-          font-size: 0.78rem;
-        }
-        .gnw-ac-wrap input::placeholder { color: #9ca3af; }
-        .gnw-hint { font-size: 0.58rem; color: #a1a1b8; margin-top: 6px; line-height: 1.35; }
-        .gnw-actions {
-          display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
-          margin-top: 10px;
-        }
-        /* Explicit colors — some mobile WebViews ignore theme vars on buttons and overlap map controls */
-        button.gnw-btn {
-          -webkit-appearance: none; appearance: none;
-          padding: 10px 16px; border-radius: 8px; font-size: 0.78rem; font-weight: 600;
-          cursor: pointer; border: 1px solid rgba(255, 255, 255, 0.22);
-          background: #3d3d68; color: #f4f4f8; white-space: nowrap; font-family: inherit;
-          line-height: 1.2; min-height: 40px; box-sizing: border-box;
-        }
-        button.gnw-btn:hover { border-color: #a5a6e8; background: #4a4a78; }
-        button.gnw-btn:disabled { opacity: 0.55; cursor: not-allowed; }
-        button.gnw-btn-primary { background: #8b8bd4; color: #0f0e47; border-color: transparent; }
-        button.gnw-btn-primary:hover:not(:disabled) { background: #9d9de0; }
-        .gnw-panel {
-          position: absolute; bottom: 10px; left: 10px; right: 10px; z-index: 999; max-width: min(100%, 560px);
-          margin: 0 auto; border-radius: var(--radius-sm, 10px);
-          background: rgba(12, 11, 40, 0.96); border: 1px solid var(--border, #444);
-          backdrop-filter: blur(12px);
-          display: flex; flex-direction: column; max-height: min(52dvh, 420px);
-          box-shadow: 0 12px 40px rgba(0,0,0,0.35);
-        }
-        .gnw-current {
-          flex-shrink: 0; padding: 14px 16px 12px;
-          border-bottom: 1px solid rgba(255,255,255,0.06);
-        }
-        .gnw-turn-label { font-size: 0.52rem; letter-spacing: 0.14em; color: var(--text-faint, #888); margin-bottom: 6px; font-weight: 600; }
-        .gnw-turn-text { font-size: 0.95rem; font-weight: 600; color: var(--text, #eee); line-height: 1.4; margin: 0; }
-        .gnw-turn-meta { font-size: 0.68rem; color: var(--text-muted, #aaa); margin-top: 10px; display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; }
-        .gnw-arrived { font-size: 0.75rem; font-weight: 600; color: #86efac; margin-top: 6px; }
-        .gnw-step-nav { display: inline-flex; gap: 6px; margin-left: auto; }
-        .gnw-step-nav button {
-          padding: 4px 10px; font-size: 0.62rem; font-weight: 600; border-radius: 6px;
-          border: 1px solid var(--border, #555); background: rgba(255,255,255,0.06); color: var(--text-muted, #aaa);
-          cursor: pointer; font-family: inherit;
-        }
-        .gnw-step-nav button:disabled { opacity: 0.35; cursor: not-allowed; }
-        .gnw-step-nav button:not(:disabled):hover { border-color: var(--blue-soft, #8b8bd4); color: var(--text, #eee); }
-        .gnw-steps-head { font-size: 0.58rem; letter-spacing: 0.1em; color: var(--text-faint, #888); padding: 8px 16px 4px; font-weight: 600; }
-        .gnw-steps {
-          overflow-y: auto; padding: 0 8px 10px 12px; flex: 1; min-height: 0;
-          -webkit-overflow-scrolling: touch;
-        }
-        .gnw-step-row {
-          display: grid; grid-template-columns: 28px 1fr; gap: 10px; padding: 8px 8px 8px 4px;
-          border-radius: 8px; margin-bottom: 2px; border: 1px solid transparent;
-        }
-        .gnw-step-row.on { background: rgba(139, 139, 212, 0.12); border-color: rgba(139, 139, 212, 0.35); }
-        .gnw-step-num { font-size: 0.65rem; font-weight: 700; color: var(--text-faint, #888); text-align: right; padding-top: 2px; }
-        .gnw-step-body { min-width: 0; }
-        .gnw-step-inst { font-size: 0.72rem; color: var(--text, #ddd); line-height: 1.4; margin: 0; }
-        .gnw-step-sub { font-size: 0.58rem; color: var(--text-faint, #777); margin-top: 4px; }
-        .gnw-gmaps {
-          flex-shrink: 0; padding: 10px 14px 12px;
-          border-top: 1px solid rgba(255,255,255,0.06);
-        }
-        .gnw-gmaps a {
-          display: flex; align-items: center; justify-content: center; gap: 8px;
-          padding: 10px 12px; border-radius: var(--radius-sm, 8px);
-          font-size: 0.72rem; font-weight: 600; text-decoration: none;
-          background: rgba(255,255,255,0.08); color: var(--blue-soft, #a5b4fc); border: 1px solid rgba(139, 139, 212, 0.35);
-        }
-        .gnw-gmaps a:hover { background: rgba(139, 139, 212, 0.15); }
-        .gnw-err { position: absolute; bottom: min(58dvh, 460px); left: 12px; right: 12px; z-index: 998; text-align: center; font-size: 0.72rem; color: #fca5a5; pointer-events: none; }
-      `}</style>
-      <div className={ring}>
+      <style>{css}</style>
+      <div className="gnw-root">
         <GoogleMap
           mapContainerStyle={containerStyle}
-          center={center}
+          center={userPos ?? defaultCenter}
           zoom={userPos ? 14 : 11}
           onLoad={setMap}
           options={{
             mapTypeControl: false,
             streetViewControl: false,
-            fullscreenControl: true,
-            fullscreenControlOptions: {
-              position: google.maps.ControlPosition.RIGHT_BOTTOM,
-            },
-            zoomControl: true,
-            zoomControlOptions: {
-              position: google.maps.ControlPosition.RIGHT_BOTTOM,
-            },
+            fullscreenControl: false,
+            zoomControl: false,
             gestureHandling: 'greedy',
+            clickableIcons: false,
+            styles: [{ featureType: 'poi', stylers: [{ visibility: 'off' }] }],
           }}
         >
           {userPos && (
@@ -417,158 +528,160 @@ function GoogleNavigationInner({ drowsinessState, onRouteMetaChange, apiKey }: P
               title="You"
               icon={{
                 path: window.google.maps.SymbolPath.CIRCLE,
-                scale: 8,
+                scale: 9,
                 fillColor: '#4285F4',
+                fillOpacity: 1,
+                strokeColor: '#fff',
+                strokeWeight: 2.5,
+              }}
+              zIndex={10}
+            />
+          )}
+          {routePath && routePath.length > 1 && (
+            <>
+              {/* Route shadow */}
+              <Polyline path={routePath} options={{ strokeColor: '#1557b0', strokeWeight: 9, strokeOpacity: 0.25, zIndex: 1 }} />
+              {/* Route line */}
+              <Polyline path={routePath} options={{ strokeColor: '#4285F4', strokeWeight: 6, strokeOpacity: 1, zIndex: 2 }} />
+            </>
+          )}
+          {routePath && routePath.length > 1 && (
+            <Marker
+              position={routePath[routePath.length - 1]}
+              title="Destination"
+              icon={{
+                path: window.google.maps.SymbolPath.CIRCLE,
+                scale: 7,
+                fillColor: '#ea4335',
                 fillOpacity: 1,
                 strokeColor: '#fff',
                 strokeWeight: 2,
               }}
+              zIndex={9}
             />
-          )}
-          {routePath && routePath.length > 1 && (
-            <Polyline
-              path={routePath}
-              options={{
-                strokeColor: '#6b8cff',
-                strokeWeight: 5,
-                strokeOpacity: 0.95,
-              }}
-            />
-          )}
-          {start && end && routePath && routePath.length > 1 && (
-            <>
-              <Marker position={start} label="A" />
-              <Marker position={end} label="B" />
-            </>
           )}
         </GoogleMap>
 
-        <div className="gnw-bar">
-          <div className="gnw-bar-inner">
-            <div className="gnw-ac-wrap">
-              <input
-                type="text"
-                value={destText}
-                onChange={(e) => setDestText(e.target.value)}
-                placeholder="Destination address or place (e.g. 1600 Amphitheatre Pkwy, Mountain View)"
-                autoComplete="street-address"
-              />
-              <p className="gnw-hint">
-                Routing uses Google <strong>Routes API</strong> on the server (not legacy browser Directions). Enable Routes API on your key.
-              </p>
-            </div>
-            <div className="gnw-actions">
-              <button type="button" className="gnw-btn gnw-btn-primary" onClick={() => void computeRoute()} disabled={isRouting}>
-                {isRouting ? 'Routing…' : 'Navigate'}
-              </button>
-              <button type="button" className="gnw-btn" onClick={clearRoute}>
-                Clear
-              </button>
-            </div>
-          </div>
-        </div>
-
-        {navError && <div className="gnw-err">{navError}</div>}
-
-        {routeInfo && (steps.length > 0 || routeInfo.firstInstruction) && (
-          <div className="gnw-panel">
-            <div className="gnw-current">
-              {steps.length === 0 ? (
-                <>
-                  <div className="gnw-turn-label">ROUTE</div>
-                  {routeInfo.firstInstruction && (
-                    <p className="gnw-turn-text">{routeInfo.firstInstruction}</p>
-                  )}
-                  <div className="gnw-turn-meta">
-                    <span>
-                      {routeInfo.durationText} · {routeInfo.distanceText}
-                    </span>
-                  </div>
-                  <p className="gnw-step-sub" style={{ marginTop: 10 }}>
-                    Detailed turn list unavailable. Use Open in Google Maps for full turn-by-turn in the Maps app.
-                  </p>
-                </>
-              ) : (
-                <>
-                  <div className="gnw-turn-label">
-                    {arrived ? 'DESTINATION' : `STEP ${currentStepIndex + 1} OF ${steps.length}`}
-                  </div>
-                  {arrived ? (
-                    <p className="gnw-turn-text">You’ve arrived</p>
-                  ) : (
-                    currentStep && <p className="gnw-turn-text">{currentStep.instruction}</p>
-                  )}
-                  {!arrived && currentStep && (
-                    <div className="gnw-turn-meta">
-                      <span>
-                        This segment: {currentStep.distanceText} · {currentStep.durationText}
-                      </span>
-                      <span>
-                        Trip: {routeInfo.durationText} · {routeInfo.distanceText}
-                      </span>
-                      <div className="gnw-step-nav" role="group" aria-label="Step">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setArrived(false);
-                            setCurrentStepIndex((i) => Math.max(0, i - 1));
-                          }}
-                          disabled={currentStepIndex === 0}
-                        >
-                          Back
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() =>
-                            setCurrentStepIndex((i) => Math.min(steps.length - 1, i + 1))
-                          }
-                          disabled={currentStepIndex >= steps.length - 1}
-                        >
-                          Next
-                        </button>
-                      </div>
-                    </div>
-                  )}
-                  {arrived && (
-                    <p className="gnw-arrived">Route complete. Safe parking — rest if you need to.</p>
-                  )}
-                </>
-              )}
-            </div>
-
-            {steps.length > 0 && !arrived && (
-              <>
-                <div className="gnw-steps-head">ALL TURNS</div>
-                <div className="gnw-steps">
-                  {steps.map((step, i) => (
-                    <div
-                      key={i}
-                      className={`gnw-step-row ${i === currentStepIndex ? 'on' : ''}`}
-                      ref={i === currentStepIndex ? currentStepRowRef : undefined}
-                    >
-                      <div className="gnw-step-num">{i + 1}</div>
-                      <div className="gnw-step-body">
-                        <p className="gnw-step-inst">{step.instruction}</p>
-                        <div className="gnw-step-sub">
-                          {step.distanceText} · {step.durationText}
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </>
-            )}
-
-            {gmapsUrl && (
-              <div className="gnw-gmaps">
-                <a href={gmapsUrl} target="_blank" rel="noopener noreferrer">
-                  Open in Google Maps
-                  <span aria-hidden> ↗</span>
-                </a>
+        {/* ── Search bar / destination input (when no active route or not arrived) ── */}
+        {!isNavigating && (
+          <div className="gnw-search">
+            <div className="gnw-search-inner">
+              <div className="gnw-search-row">
+                <input
+                  className="gnw-search-input"
+                  type="text"
+                  value={destText}
+                  onChange={(e) => setDestText(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && void computeRoute()}
+                  placeholder="Where to?"
+                  autoComplete="street-address"
+                  onFocus={() => setSearchFocused(true)}
+                  onBlur={() => setSearchFocused(false)}
+                />
+                {destText && (
+                  <button type="button" className="gnw-search-clear" onClick={() => { setDestText(''); setNavError(null); }} aria-label="Clear">✕</button>
+                )}
+                <button
+                  type="button"
+                  className="gnw-search-nav-btn"
+                  onClick={() => void computeRoute()}
+                  disabled={isRouting || !destText.trim()}
+                >
+                  {isRouting ? '…' : 'Go'}
+                </button>
               </div>
-            )}
+            </div>
           </div>
         )}
+
+        {/* ── Top turn banner (navigating) ── */}
+        {isNavigating && !arrived && currentStep && (
+          <div className="gnw-top-banner" style={{ background: dangerBg }}>
+            <div className="gnw-banner-icon">
+              <TurnIcon dir={turnDir} size={48} />
+            </div>
+            <div className="gnw-banner-text">
+              <div className="gnw-banner-distance" style={{ color: 'rgba(255,255,255,0.85)' }}>
+                {currentStep.distanceText}
+              </div>
+              <div className="gnw-banner-street" style={{ color: '#fff' }}>
+                {currentStep.instruction.replace(/Turn (right|left) onto /i, '').replace(/Head \w+ on /i, '').replace(/Continue onto /i, '') || currentStep.instruction}
+              </div>
+              {nextStep && (
+                <div className="gnw-banner-next" style={{ color: 'rgba(255,255,255,0.75)' }}>
+                  Then: {nextStep.instruction}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* ── ETA bottom strip (navigating, not arrived) ── */}
+        {isNavigating && !arrived && routeInfo && (
+          <>
+            <button
+              type="button"
+              className="gnw-list-toggle"
+              style={{ bottom: arrived ? 210 : 170 }}
+              onClick={() => setShowList(v => !v)}
+              aria-label="Toggle step list"
+            >
+              {showList ? '▾' : '☰'}
+            </button>
+
+            <div className="gnw-eta">
+              <div className="gnw-eta-row">
+                <div className="gnw-eta-stat">
+                  <span className="gnw-eta-val">{arrivalTime(routeInfo.durationSeconds)}</span>
+                  <span className="gnw-eta-lbl">arrival</span>
+                </div>
+                <div className="gnw-eta-divider" />
+                <div className="gnw-eta-stat">
+                  <span className="gnw-eta-val">{routeInfo.durationText}</span>
+                  <span className="gnw-eta-lbl">remaining</span>
+                </div>
+                <div className="gnw-eta-divider" />
+                <div className="gnw-eta-stat">
+                  <span className="gnw-eta-val">{routeInfo.distanceText}</span>
+                  <span className="gnw-eta-lbl">distance</span>
+                </div>
+                <button type="button" className="gnw-eta-exit" onClick={clearRoute}>Exit</button>
+              </div>
+            </div>
+
+            {showList && (
+              <div className="gnw-steps-sheet" style={{ bottom: 140 }}>
+                <div className="gnw-steps-title">All turns</div>
+                {steps.map((step, i) => (
+                  <div
+                    key={i}
+                    className={`gnw-step-item ${i === currentStepIndex ? 'active' : ''}`}
+                    onClick={() => { setCurrentStepIndex(i); setShowList(false); }}
+                  >
+                    <div className="gnw-step-num-badge">{i + 1}</div>
+                    <div>
+                      <p className="gnw-step-inst-text">{step.instruction}</p>
+                      <div className="gnw-step-dist-text">{step.distanceText} · {step.durationText}</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </>
+        )}
+
+        {/* ── Arrived card ── */}
+        {arrived && (
+          <div className="gnw-arrived">
+            <div className="gnw-arrived-pin">📍</div>
+            <h2 className="gnw-arrived-title">You've arrived</h2>
+            <p className="gnw-arrived-sub">You have reached your destination. Drive safely.</p>
+            <button type="button" className="gnw-arrived-done" onClick={clearRoute}>Done</button>
+          </div>
+        )}
+
+        {/* ── Error toast ── */}
+        {navError && <div className="gnw-err">{navError}</div>}
       </div>
     </>
   );

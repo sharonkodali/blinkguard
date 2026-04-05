@@ -6,7 +6,6 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import Link from 'next/link';
 import CalibrationWizard from '@/components/CalibrationWizard';
 import BottomNav from '@/components/BottomNav';
 import { formatCameraError, getUserMediaFrontCamera } from '@/lib/camera';
@@ -109,8 +108,7 @@ export default function CalibratePage() {
       <div className="ios-app">
         <div className="cal-screen">
           <div className="cal-header">
-            <h1 className="cal-title">Calibration</h1>
-            <Link href="/" className="cal-back">Cancel</Link>
+            <h1 className="cal-title">Set Up BlinkGuard</h1>
           </div>
 
           <div className="cal-stage">
