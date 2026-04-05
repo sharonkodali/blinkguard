@@ -9,30 +9,16 @@
     "lint": "eslint"
   },
   "dependencies": {
-<<<<<<< Updated upstream
     "@ai-sdk/anthropic": "^3.0.66",
     "@mediapipe/camera_utils": "^0.3.1675466862",
     "@mediapipe/drawing_utils": "^0.3.1675466124",
     "@mediapipe/face_mesh": "^0.4.1633559619",
+    "@react-google-maps/api": "^2.20.8",
     "ai": "^6.0.146",
     "next": "16.2.2",
     "react": "19.2.4",
     "react-dom": "19.2.4",
     "zod": "^4.3.6"
-=======
-    "@anthropic-ai/sdk": "^0.82.0",
-    "@mediapipe/camera_utils": "^0.3.1675466862",
-    "@mediapipe/drawing_utils": "^0.3.1675466124",
-    "@mediapipe/face_mesh": "^0.4.1633559619",
-    "@react-google-maps/api": "^2.20.8",
-    "@types/leaflet": "^1.9.21",
-    "leaflet": "^1.9.4",
-    "leaflet-routing-machine": "^3.2.12",
-    "next": "16.2.2",
-    "react": "19.2.4",
-    "react-dom": "19.2.4",
-    "react-leaflet": "^5.0.0"
->>>>>>> Stashed changes
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",

@@ -1,30 +1,52 @@
 'use client';
 import { useEffect, useRef, useState, startTransition } from 'react';
 import NearbyStopsCard from '@/components/NearbyStopsCard';
-import { runDrowsyAgents, checkTraffic, speakAlert, vibrateAlert, type AgentResponse } from '../lib/agents';
+import {
+  runDrowsyAgents,
+  checkTraffic,
+  speakAlert,
+  vibrateAlert,
+  type AgentResponse,
+  type TrafficContext,
+} from '@/lib/agents';
 
 interface AgentPanelProps {
   isDrowsy: boolean;
   alertCount: number;
+  /** Active Google route — improves Anthropic traffic copy */
+  trafficContext?: TrafficContext | null;
 }
 
 type AgentStatus = 'idle' | 'loading' | 'done' | 'error';
 
-export default function AgentPanel({ isDrowsy, alertCount }: AgentPanelProps) {
+export default function AgentPanel({ isDrowsy, alertCount, trafficContext }: AgentPanelProps) {
   const [status, setStatus] = useState<AgentStatus>('idle');
   const [response, setResponse] = useState<AgentResponse | null>(null);
   const [trafficTick, setTrafficTick] = useState('Checking traffic...');
   const [lastAlertCount, setLastAlertCount] = useState(0);
   const [spoken, setSpoken] = useState(false);
-  const trafficRef = useRef<ReturnType<typeof setInterval>>(null);
+  const trafficCtxRef = useRef(trafficContext);
 
-  // Poll traffic every 60s
+  const trafficCtxKey = JSON.stringify({
+    d: trafficContext?.destinationLabel ?? '',
+    o: trafficContext?.originLabel ?? '',
+  });
+
   useEffect(() => {
-    checkTraffic().then(setTrafficTick);
-    trafficRef.current = setInterval(() => {
-      checkTraffic().then(setTrafficTick);
+    trafficCtxRef.current = trafficContext;
+  }, [trafficContext]);
+
+  // Immediate refresh when route labels change (stable key avoids effect array bugs)
+  useEffect(() => {
+    checkTraffic(trafficCtxRef.current ?? undefined).then(setTrafficTick);
+  }, [trafficCtxKey]);
+
+  // Poll traffic every 60s; always read latest route from ref
+  useEffect(() => {
+    const id = setInterval(() => {
+      checkTraffic(trafficCtxRef.current ?? undefined).then(setTrafficTick);
     }, 60000);
-    return () => { if (trafficRef.current) clearInterval(trafficRef.current); };
+    return () => clearInterval(id);
   }, []);
 
   // Trigger agent on new drowsy event

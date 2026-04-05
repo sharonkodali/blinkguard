@@ -29,12 +29,15 @@ function drowsyFallback(alertCount: number) {
 
 export async function POST(request: Request) {
   const body = await request.json();
-  const { type, alertCount, sessionSeconds, avgEar, safetyScore } = body as {
+  const { type, alertCount, sessionSeconds, avgEar, safetyScore, destinationLabel, originLabel } = body as {
     type?: string;
     alertCount?: number;
     sessionSeconds?: number;
     avgEar?: number;
     safetyScore?: number;
+    /** Optional route context from Google Maps navigation */
+    destinationLabel?: string;
+    originLabel?: string;
   };
 
   if (!process.env.ANTHROPIC_API_KEY?.trim()) {
@@ -59,11 +62,14 @@ export async function POST(request: Request) {
 
   try {
     if (type === 'traffic') {
+      const routeHint =
+        destinationLabel || originLabel
+          ? ` The driver has an active route${originLabel ? ` from ${originLabel}` : ''}${destinationLabel ? ` toward ${destinationLabel}` : ''}.`
+          : '';
       const { text } = await generateText({
         model,
-        maxOutputTokens: 96,
-        prompt:
-          'Give a one-sentence realistic traffic advisory for a drowsy driver. Be concise and direct. No intro text.',
+        maxOutputTokens: 120,
+        prompt: `Give one concise sentence of driving/traffic advice for someone who may be drowsy.${routeHint} Mention safety (spacing, exits) if relevant. No greeting or preamble.`,
       });
       return NextResponse.json({ traffic: text.trim() });
     }

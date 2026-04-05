@@ -1,9 +1,34 @@
 'use client';
 import { useRef, useEffect, useState, useCallback } from 'react';
+import dynamic from 'next/dynamic';
 import StatusPanel from '@/components/StatusPanel';
 import AlertBanner from '@/components/AlertBanner';
 import AgentPanel from '@/components/AgentPanel';
 import NearbyStopsCard from '@/components/NearbyStopsCard';
+import type { RouteMeta } from '@/components/GoogleNavigationMap';
+
+const GoogleNavigationMap = dynamic(
+  () => import('@/components/GoogleNavigationMap'),
+  {
+    ssr: false,
+    loading: () => (
+      <div
+        style={{
+          minHeight: 420,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          color: 'var(--text-faint)',
+          fontSize: '0.8rem',
+          background: 'var(--surface)',
+          borderRadius: 'var(--radius)',
+        }}
+      >
+        Loading map…
+      </div>
+    ),
+  },
+);
 import { fetchSessionSummaryAI, type SessionSummaryAI } from '@/lib/agents';
 import { computeEAR, computeMAR, isEyeClosed, isYawning, getDrowsinessState, FRAMES_DANGER } from '@/lib/drowsiness';
 import type { DrowsinessState } from '@/lib/drowsiness';
@@ -37,6 +62,7 @@ export default function Monitor() {
   const [eclipseSoft,     setEclipseSoft]     = useState(false);
   const [summaryAi,       setSummaryAi]       = useState<SessionSummaryAI | null>(null);
   const [summaryAiLoading, setSummaryAiLoading] = useState(false);
+  const [trafficRouteMeta, setTrafficRouteMeta] = useState<RouteMeta | null>(null);
 
   const closedRef      = useRef(0);
   const alertCooling   = useRef(false);
@@ -215,6 +241,7 @@ export default function Monitor() {
     setMainTab('live');
     setSummaryAi(null);
     setSummaryAiLoading(false);
+    setTrafficRouteMeta(null);
     if (videoRef.current?.srcObject) {
       const tracks = (videoRef.current.srcObject as MediaStream).getTracks();
       tracks.forEach(t => t.stop());
@@ -257,14 +284,23 @@ export default function Monitor() {
         }
 
         .mon-cam-col { display: flex; flex-direction: column; gap: 14px; min-width: 0; min-height: 0; }
-        .mon-cam-wrap {
-          position: relative; flex: 1; min-height: 280px; border-radius: var(--radius);
+        .mon-map-shell {
+          position: relative; flex: 1; min-height: 320px; border-radius: var(--radius);
           overflow: hidden; border: 1px solid var(--border); background: var(--surface);
-          transition: border-color 0.35s, box-shadow 0.35s;
+          display: flex; flex-direction: column;
         }
-        .mon-cam-wrap.cam-awake   { border-color: rgba(134, 134, 172, 0.25); }
-        .mon-cam-wrap.cam-warning { border-color: rgba(80, 80, 129, 0.7); box-shadow: 0 0 0 1px rgba(80, 80, 129, 0.25); }
-        .mon-cam-wrap.cam-danger  { border-color: rgba(134, 134, 172, 0.5); box-shadow: 0 0 0 1px rgba(134, 134, 172, 0.15); }
+        .mon-map-shell > * { flex: 1; min-height: 0; }
+        .mon-cam-pip {
+          position: absolute; bottom: 14px; left: 14px; width: 220px; max-width: 42vw; aspect-ratio: 4/3;
+          z-index: 6; border-radius: var(--radius-sm); overflow: hidden; background: #000;
+          border: 2px solid var(--border); transition: border-color 0.35s, box-shadow 0.35s;
+        }
+        .mon-cam-pip.cam-awake   { border-color: rgba(134, 134, 172, 0.45); }
+        .mon-cam-pip.cam-warning { border-color: rgba(80, 80, 129, 0.85); box-shadow: 0 0 0 1px rgba(80, 80, 129, 0.35); }
+        .mon-cam-pip.cam-danger  { border-color: rgba(180, 140, 200, 0.75); box-shadow: 0 0 0 1px rgba(134, 134, 172, 0.35); }
+        .mon-cam-offscreen {
+          position: absolute; left: -9999px; top: 0; width: 640px; height: 480px; opacity: 0; pointer-events: none; z-index: 0;
+        }
 
         .mon-cam-placeholder { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; }
         .mon-cam-placeholder-icon { font-size: 2.5rem; opacity: 0.35; color: var(--text-muted); }
@@ -377,40 +413,39 @@ export default function Monitor() {
 
         <div className="mon-body">
           <div className="mon-cam-col">
-            <div className={`mon-cam-wrap ${isStarted && mainTab === 'live' ? `cam-${s}` : ''}`}>
-              {!isStarted && (
-                <div className="mon-cam-placeholder">
-                  <div className="mon-cam-placeholder-icon">◉</div>
-                  <div className="mon-cam-placeholder-text">Start monitoring to show your camera feed</div>
-                </div>
-              )}
-              <video
-                ref={videoRef}
-                autoPlay
-                muted
-                playsInline
-                className={`mirror absolute inset-0 w-full h-full object-cover ${isStarted ? 'block' : 'hidden'}`}
+            <div className="mon-map-shell">
+              <GoogleNavigationMap
+                drowsinessState={drowsinessState}
+                onRouteMetaChange={setTrafficRouteMeta}
               />
-              <canvas
-                ref={canvasRef}
-                className={`mirror absolute inset-0 w-full h-full ${isStarted ? 'block' : 'hidden'}`}
-              />
-              {isStarted && mainTab === 'live' && (
-                <>
-                  <div className={`mon-badge-tl ${s === 'warning' ? 'warn' : ''} ${s === 'danger' ? 'danger' : ''}`}>
-                    {s === 'awake' ? 'AWAKE' : s === 'warning' ? 'DROWSY' : 'CRITICAL'}
-                  </div>
-                  <div className="mon-badge-tr">
-                    <span>{formatHMS(sessionTime)}</span>
-                    <span className={`mon-dot ${faceDetected ? '' : 'off'}`} title={faceDetected ? 'Tracking' : 'No face'} />
-                    <span className="mon-eye-ic" aria-hidden>👁</span>
-                  </div>
-                </>
-              )}
-              {isStarted && mainTab === 'summary' && (
-                <div className="mon-cam-placeholder">
-                  <div className="mon-cam-placeholder-icon">▣</div>
-                  <div className="mon-cam-placeholder-text">Session paused in summary view</div>
+              {isStarted && (
+                <div
+                  className={
+                    mainTab === 'live'
+                      ? `mon-cam-pip cam-${s}`
+                      : 'mon-cam-offscreen'
+                  }
+                >
+                  <video
+                    ref={videoRef}
+                    autoPlay
+                    muted
+                    playsInline
+                    className="mirror absolute inset-0 w-full h-full object-cover"
+                  />
+                  <canvas ref={canvasRef} className="mirror absolute inset-0 w-full h-full" />
+                  {mainTab === 'live' && (
+                    <>
+                      <div className={`mon-badge-tl ${s === 'warning' ? 'warn' : ''} ${s === 'danger' ? 'danger' : ''}`}>
+                        {s === 'awake' ? 'AWAKE' : s === 'warning' ? 'DROWSY' : 'CRITICAL'}
+                      </div>
+                      <div className="mon-badge-tr">
+                        <span>{formatHMS(sessionTime)}</span>
+                        <span className={`mon-dot ${faceDetected ? '' : 'off'}`} title={faceDetected ? 'Tracking' : 'No face'} />
+                        <span className="mon-eye-ic" aria-hidden>👁</span>
+                      </div>
+                    </>
+                  )}
                 </div>
               )}
             </div>
@@ -513,7 +548,11 @@ export default function Monitor() {
                   alertCount={alertCount}
                   sessionTime={sessionTime}
                 />
-                <AgentPanel isDrowsy={drowsinessState === 'danger'} alertCount={alertCount} />
+                <AgentPanel
+                  isDrowsy={drowsinessState === 'danger'}
+                  alertCount={alertCount}
+                  trafficContext={trafficRouteMeta}
+                />
               </>
             ) : (
               <div className="mon-idle">

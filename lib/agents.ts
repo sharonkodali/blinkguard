@@ -19,9 +19,15 @@ export async function runDrowsyAgents(alertCount: number): Promise<AgentResponse
   }
 }
 
-export async function checkTraffic(): Promise<string> {
+export type TrafficContext = { destinationLabel?: string; originLabel?: string };
+
+export async function checkTraffic(context?: TrafficContext): Promise<string> {
   try {
-    const data = await fetchAgentJson<{ traffic: string }>({ type: 'traffic' });
+    const data = await fetchAgentJson<{ traffic: string }>({
+      type: 'traffic',
+      ...(context?.destinationLabel ? { destinationLabel: context.destinationLabel } : {}),
+      ...(context?.originLabel ? { originLabel: context.originLabel } : {}),
+    });
     return data.traffic ?? 'Traffic looks clear ahead.';
   } catch {
     return 'Traffic data unavailable.';
