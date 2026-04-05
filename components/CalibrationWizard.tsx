@@ -1,8 +1,8 @@
 'use client';
 import { useRef, useEffect, useState, useCallback } from 'react';
 import {
-  computeEAR,
-  computeMAR,
+  computeAdaptiveEAR,
+  computeAdaptiveMAR,
   type CalibrationData,
   type FaceLandmark,
   saveCalibrationData,
@@ -67,8 +67,8 @@ export default function CalibrationWizard({
         if (!results.multiFaceLandmarks?.length) return;
 
         const lm = results.multiFaceLandmarks[0];
-        const ear = computeEAR(lm);
-        const mar = computeMAR(lm);
+        const ear = computeAdaptiveEAR(lm);
+        const mar = computeAdaptiveMAR(lm);
 
         // Update display in real-time
         setCurrentEAR(ear);
