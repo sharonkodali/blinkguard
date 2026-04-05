@@ -33,7 +33,7 @@ const GoogleNavigationMap = dynamic(
     loading: () => (
       <div className="nav-map-loading">
         <span className="nav-map-loading-dot" />
-        Loading map…
+        Preparing navigation…
       </div>
     ),
   },
