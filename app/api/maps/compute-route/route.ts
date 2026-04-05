@@ -59,6 +59,17 @@ function formatEta(seconds: number): string {
   return `${m} min`;
 }
 
+/** Per-step duration (often under 1 min). */
+function formatStepDuration(seconds: number): string {
+  if (seconds <= 0) return '—';
+  if (seconds < 60) return `${seconds} s`;
+  const m = Math.floor(seconds / 60);
+  if (m < 60) return `${m} min`;
+  const h = Math.floor(m / 60);
+  const rm = m % 60;
+  return `${h} hr ${rm} min`;
+}
+
 function formatDistance(meters: number): string {
   if (meters <= 0) return '—';
   const mi = meters / 1609.34;
@@ -101,8 +112,16 @@ export async function POST(request: Request) {
     );
   }
 
-  const fieldMask =
-    'routes.duration,routes.distanceMeters,routes.polyline,routes.legs.steps';
+  /** Include step details for turn-by-turn UI (distance, duration, maneuver text, end point for GPS step advance). */
+  const fieldMask = [
+    'routes.duration',
+    'routes.distanceMeters',
+    'routes.polyline',
+    'routes.legs.steps.distanceMeters',
+    'routes.legs.steps.staticDuration',
+    'routes.legs.steps.navigationInstruction',
+    'routes.legs.steps.endLocation',
+  ].join(',');
 
   const baseBody = {
     origin: {
@@ -172,14 +191,19 @@ export async function POST(request: Request) {
     }
 
     const routes = (data as { routes?: unknown[] }).routes;
+    type ApiStep = {
+      distanceMeters?: number;
+      staticDuration?: unknown;
+      navigationInstruction?: { instructions?: string };
+      endLocation?: { latLng?: { latitude?: number; longitude?: number } };
+    };
+
     const route = routes?.[0] as
       | {
           duration?: unknown;
           distanceMeters?: number;
           polyline?: { encodedPolyline?: string };
-          legs?: Array<{
-            steps?: Array<{ navigationInstruction?: { instructions?: string } }>;
-          }>;
+          legs?: Array<{ steps?: ApiStep[] }>;
         }
       | undefined;
 
@@ -191,9 +215,28 @@ export async function POST(request: Request) {
 
     const durationSeconds = parseDurationSeconds(route?.duration);
     const distanceMeters = typeof route?.distanceMeters === 'number' ? route.distanceMeters : 0;
-    const firstStep = route?.legs?.[0]?.steps?.[0];
-    const firstInstruction =
-      firstStep?.navigationInstruction?.instructions?.replace(/<[^>]+>/g, '') ?? '';
+    const rawSteps = route?.legs?.[0]?.steps ?? [];
+
+    const stripHtml = (s: string) => s.replace(/<[^>]+>/g, '').trim();
+
+    const steps = rawSteps.map((st, index) => {
+      const instruction = stripHtml(st.navigationInstruction?.instructions ?? '') || `Step ${index + 1}`;
+      const dm = typeof st.distanceMeters === 'number' ? st.distanceMeters : 0;
+      const ds = parseDurationSeconds(st.staticDuration);
+      const lat = st.endLocation?.latLng?.latitude;
+      const lng = st.endLocation?.latLng?.longitude;
+      return {
+        instruction,
+        distanceMeters: dm,
+        durationSeconds: ds,
+        distanceText: formatDistance(dm),
+        durationText: formatStepDuration(ds),
+        endLat: typeof lat === 'number' && !Number.isNaN(lat) ? lat : null,
+        endLng: typeof lng === 'number' && !Number.isNaN(lng) ? lng : null,
+      };
+    });
+
+    const firstInstruction = steps[0]?.instruction ?? '';
 
     const originLabel = `${origin.lat.toFixed(4)}, ${origin.lng.toFixed(4)}`;
     const destinationLabel = dest;
@@ -205,6 +248,7 @@ export async function POST(request: Request) {
       distanceMeters,
       distanceText: formatDistance(distanceMeters),
       firstInstruction,
+      steps,
       originLabel,
       destinationLabel,
     });

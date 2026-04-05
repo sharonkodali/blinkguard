@@ -5,8 +5,10 @@ import StatusPanel from '@/components/StatusPanel';
 import AlertBanner from '@/components/AlertBanner';
 import CalibrationWizard from '@/components/CalibrationWizard';
 import {
-  computeEAR, computeMAR,
-  isEyeClosed, isYawning,
+  computeAdaptiveEAR,
+  computeAdaptiveMAR,
+  isEyeClosedAdaptive,
+  isYawningAdaptive,
   getDrowsinessState,
   hasCalibration,
   loadCalibrationData,
@@ -128,12 +130,12 @@ export default function Home() {
 
         // ── Compute metrics ────────────────────────────────────────────────────
         try {
-          const currentEAR = computeEAR(lm);
-          const currentMAR = computeMAR(lm);
+          const currentEAR = computeAdaptiveEAR(lm);
+          const currentMAR = computeAdaptiveMAR(lm);
           setEar(parseFloat(currentEAR.toFixed(3)));
 
           // ── Update closed-frames counter ───────────────────────────────────────
-          if (isEyeClosed(currentEAR)) {
+          if (isEyeClosedAdaptive(currentEAR, lm)) {
             closedRef.current = Math.min(closedRef.current + 1, FRAMES_DANGER + 5);
           } else {
             closedRef.current = Math.max(0, closedRef.current - 2);
@@ -141,7 +143,7 @@ export default function Home() {
           setClosedFrames(closedRef.current);
 
           // ── Compute state & fire alerts ───────────────────────────────────────
-          const state = getDrowsinessState(closedRef.current, isYawning(currentMAR));
+          const state = getDrowsinessState(closedRef.current, isYawningAdaptive(currentMAR, lm));
           setDrowsinessState(state);
           if (state === 'danger') triggerAlert();
 
@@ -152,7 +154,7 @@ export default function Home() {
           });
 
           // ── Highlight eyes (green = open, red = closed) ────────────────────────
-          const eyeColor = isEyeClosed(currentEAR)
+          const eyeColor = isEyeClosedAdaptive(currentEAR, lm)
             ? 'rgba(255, 60, 60, 0.9)'
             : 'rgba(60, 255, 120, 0.9)';
 
@@ -165,7 +167,7 @@ export default function Home() {
           }
 
           // ── Yawn: highlight mouth ─────────────────────────────────────────────
-          if (isYawning(currentMAR)) {
+          if (isYawningAdaptive(currentMAR, lm)) {
             ctx.strokeStyle = 'rgba(255, 220, 0, 0.7)';
             ctx.lineWidth   = 2;
             ctx.beginPath();

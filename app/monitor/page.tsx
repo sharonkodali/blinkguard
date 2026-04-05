@@ -31,7 +31,14 @@ const GoogleNavigationMap = dynamic(
 );
 import { fetchSessionSummaryAI, type SessionSummaryAI } from '@/lib/agents';
 import { formatCameraError, getUserMediaFrontCamera } from '@/lib/camera';
-import { computeEAR, computeMAR, isEyeClosed, isYawning, getDrowsinessState, FRAMES_DANGER } from '@/lib/drowsiness';
+import {
+  computeAdaptiveEAR,
+  computeAdaptiveMAR,
+  isEyeClosedAdaptive,
+  isYawningAdaptive,
+  getDrowsinessState,
+  FRAMES_DANGER,
+} from '@/lib/drowsiness';
 import type { DrowsinessState } from '@/lib/drowsiness';
 
 const LEFT_EYE_IDX  = [33,7,163,144,145,153,154,155,133,246,161,160,159,158,157,173];
@@ -179,24 +186,24 @@ export default function Monitor() {
         setFaceDetected(true);
         const lm = results.multiFaceLandmarks[0];
         try {
-          const currentEAR = computeEAR(lm);
-          const currentMAR = computeMAR(lm);
+          const currentEAR = computeAdaptiveEAR(lm);
+          const currentMAR = computeAdaptiveMAR(lm);
           setEar(parseFloat(currentEAR.toFixed(3)));
           setEarSum(prev => prev + currentEAR);
           setEarSamples(n => n + 1);
 
-          closedRef.current = isEyeClosed(currentEAR)
+          closedRef.current = isEyeClosedAdaptive(currentEAR, lm)
             ? Math.min(closedRef.current + 1, FRAMES_DANGER + 5)
             : Math.max(0, closedRef.current - 2);
           setClosedFrames(closedRef.current);
 
-          const state = getDrowsinessState(closedRef.current, isYawning(currentMAR));
+          const state = getDrowsinessState(closedRef.current, isYawningAdaptive(currentMAR, lm));
           setDrowsinessState(state);
           if (state === 'danger') triggerAlert();
 
           drawConnectors(ctx, lm, FACEMESH_TESSELATION, { color: 'rgba(134,134,172,0.07)', lineWidth: 0.5 });
 
-          const eyeColor = isEyeClosed(currentEAR) ? 'rgba(196,178,200,0.95)' : 'rgba(134,134,172,0.9)';
+          const eyeColor = isEyeClosedAdaptive(currentEAR, lm) ? 'rgba(196,178,200,0.95)' : 'rgba(134,134,172,0.9)';
           ctx.fillStyle = eyeColor;
           for (const idx of [...LEFT_EYE_IDX, ...RIGHT_EYE_IDX]) {
             if (!lm[idx]) continue;
@@ -205,7 +212,7 @@ export default function Monitor() {
             ctx.fill();
           }
 
-          if (isYawning(currentMAR)) {
+          if (isYawningAdaptive(currentMAR, lm)) {
             ctx.strokeStyle = 'rgba(134,134,172,0.75)';
             ctx.lineWidth = 2;
             ctx.beginPath();
@@ -296,25 +303,56 @@ export default function Monitor() {
         }
         .mon-theme:hover { border-color: var(--border-strong); color: var(--text); }
 
-        .mon-body { flex: 1; display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(300px, 0.85fr); gap: 20px; padding: 0 20px 20px; min-height: 0; overflow: hidden; }
+        .mon-body {
+          flex: 1; min-height: 0;
+          display: grid;
+          grid-template-columns: minmax(0, 1fr) minmax(240px, 300px);
+          gap: 12px;
+          padding: 0 12px 12px;
+          overflow: hidden;
+        }
         @media (max-width: 960px) {
           .mon-body { grid-template-columns: 1fr; overflow-y: auto; -webkit-overflow-scrolling: touch; }
         }
 
-        .mon-cam-col { display: flex; flex-direction: column; gap: 14px; min-width: 0; min-height: 0; flex: 1; }
-        .mon-map-shell {
-          position: relative; flex: 1;
-          min-height: 320px;
-          min-height: max(45dvh, 280px);
-          border-radius: var(--radius);
-          overflow: hidden; border: 1px solid var(--border); background: var(--surface);
+        .mon-cam-col {
           display: flex; flex-direction: column;
+          min-width: 0; min-height: 0;
+          flex: 1;
         }
-        .mon-map-shell > * { flex: 1; min-height: 0; }
+        .mon-map-shell {
+          position: relative;
+          flex: 1;
+          min-height: 0;
+          border-radius: var(--radius);
+          overflow: hidden;
+          border: 1px solid var(--border);
+          background: var(--surface);
+          display: flex;
+          flex-direction: column;
+        }
+        .mon-map-shell > *:first-child { flex: 1; min-height: 0; }
         .mon-cam-pip {
-          position: absolute; bottom: 14px; left: 14px; width: 220px; max-width: 42vw; aspect-ratio: 4/3;
-          z-index: 6; border-radius: var(--radius-sm); overflow: hidden; background: #000;
+          position: absolute; bottom: 12px; right: 12px; left: auto;
+          width: 112px; max-width: 28vw; aspect-ratio: 4/3;
+          z-index: 8; border-radius: var(--radius-sm); overflow: hidden; background: #000;
           border: 2px solid var(--border); transition: border-color 0.35s, box-shadow 0.35s;
+          box-shadow: 0 8px 24px rgba(0,0,0,0.45);
+        }
+        .mon-cam-pip .mon-badge-tl,
+        .mon-cam-pip .mon-badge-tr {
+          font-size: 0.48rem;
+          padding: 4px 6px;
+          top: 6px; left: 6px;
+        }
+        .mon-cam-pip .mon-badge-tr { left: auto; right: 6px; }
+        .mon-cam-pip .mon-dot { width: 5px; height: 5px; }
+        .mon-start-fab {
+          position: absolute;
+          bottom: 20px;
+          left: 16px;
+          z-index: 9;
+          margin: 0;
         }
         .mon-cam-pip.cam-awake   { border-color: rgba(134, 134, 172, 0.45); }
         .mon-cam-pip.cam-warning { border-color: rgba(80, 80, 129, 0.85); box-shadow: 0 0 0 1px rgba(80, 80, 129, 0.35); }
@@ -439,42 +477,44 @@ export default function Monitor() {
                 drowsinessState={drowsinessState}
                 onRouteMetaChange={setTrafficRouteMeta}
               />
-              {isStarted && (
-                <div
-                  className={
-                    mainTab === 'live'
-                      ? `mon-cam-pip cam-${s}`
-                      : 'mon-cam-offscreen'
-                  }
-                >
-                  <video
-                    ref={videoRef}
-                    autoPlay
-                    muted
-                    playsInline
-                    className="mirror absolute inset-0 w-full h-full object-cover"
-                  />
-                  <canvas ref={canvasRef} className="mirror absolute inset-0 w-full h-full" />
-                  {mainTab === 'live' && (
-                    <>
-                      <div className={`mon-badge-tl ${s === 'warning' ? 'warn' : ''} ${s === 'danger' ? 'danger' : ''}`}>
-                        {s === 'awake' ? 'AWAKE' : s === 'warning' ? 'DROWSY' : 'CRITICAL'}
-                      </div>
-                      <div className="mon-badge-tr">
-                        <span>{formatHMS(sessionTime)}</span>
-                        <span className={`mon-dot ${faceDetected ? '' : 'off'}`} title={faceDetected ? 'Tracking' : 'No face'} />
-                        <span className="mon-eye-ic" aria-hidden>👁</span>
-                      </div>
-                    </>
-                  )}
-                </div>
+              {/*
+                Video must always mount before Start: startCamera assigns srcObject to videoRef.
+                If the video only mounted after isStarted, ref was null and monitoring never started.
+              */}
+              <div
+                className={
+                  isStarted && mainTab === 'live'
+                    ? `mon-cam-pip cam-${s}`
+                    : 'mon-cam-offscreen'
+                }
+              >
+                <video
+                  ref={videoRef}
+                  autoPlay
+                  muted
+                  playsInline
+                  className="mirror absolute inset-0 w-full h-full object-cover"
+                />
+                <canvas ref={canvasRef} className="mirror absolute inset-0 w-full h-full" />
+                {isStarted && mainTab === 'live' && (
+                  <>
+                    <div className={`mon-badge-tl ${s === 'warning' ? 'warn' : ''} ${s === 'danger' ? 'danger' : ''}`}>
+                      {s === 'awake' ? 'AWAKE' : s === 'warning' ? 'DROWSY' : 'CRITICAL'}
+                    </div>
+                    <div className="mon-badge-tr">
+                      <span>{formatHMS(sessionTime)}</span>
+                      <span className={`mon-dot ${faceDetected ? '' : 'off'}`} title={faceDetected ? 'Tracking' : 'No face'} />
+                      <span className="mon-eye-ic" aria-hidden>👁</span>
+                    </div>
+                  </>
+                )}
+              </div>
+              {!isStarted && (
+                <button type="button" className="mon-start-btn mon-start-fab" onClick={startCamera}>
+                  Start monitoring
+                </button>
               )}
             </div>
-            {!isStarted && (
-              <button type="button" className="mon-start-btn" onClick={startCamera}>
-                Start monitoring
-              </button>
-            )}
           </div>
 
           <div className="mon-side">

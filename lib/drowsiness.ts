@@ -40,24 +40,99 @@ function dist2D(a: FaceLandmark, b: FaceLandmark): number {
   return Math.sqrt((a.x - b.x) ** 2 + (a.y - b.y) ** 2);
 }
 
+function clampRange(x: number, lo: number, hi: number): number {
+  return Math.min(hi, Math.max(lo, x));
+}
+
 // ─── Eye Aspect Ratio ────────────────────────────────────────────────────────
-export function computeEAR(lm: FaceLandmark[]): number {
-  const leftEAR =
+/** Left eye EAR only (frontal camera ideal). */
+export function computeLeftEyeEAR(lm: FaceLandmark[]): number {
+  return (
     (dist2D(lm[L_TOP1], lm[L_BOT1]) + dist2D(lm[L_TOP2], lm[L_BOT2])) /
-    (2 * dist2D(lm[L_LEFT], lm[L_RIGHT]));
+    (2 * Math.max(dist2D(lm[L_LEFT], lm[L_RIGHT]), 1e-6))
+  );
+}
 
-  const rightEAR =
+/** Right eye EAR only. */
+export function computeRightEyeEAR(lm: FaceLandmark[]): number {
+  return (
     (dist2D(lm[R_TOP1], lm[R_BOT1]) + dist2D(lm[R_TOP2], lm[R_BOT2])) /
-    (2 * dist2D(lm[R_LEFT], lm[R_RIGHT]));
+    (2 * Math.max(dist2D(lm[R_LEFT], lm[R_RIGHT]), 1e-6))
+  );
+}
 
-  return (leftEAR + rightEAR) / 2;
+/** Simple mean of both eyes — best when the face is frontal. */
+export function computeEAR(lm: FaceLandmark[]): number {
+  return (computeLeftEyeEAR(lm) + computeRightEyeEAR(lm)) / 2;
+}
+
+/**
+ * Pose-aware EAR for off-center / side-mounted cameras.
+ * Weights each eye by horizontal eye aperture (foreshortening proxy): the eye
+ * that faces the camera more contributes more. If one eye is heavily occluded,
+ * we follow the clearer eye (same idea as picking the max reliable signal).
+ */
+export function computeAdaptiveEAR(lm: FaceLandmark[]): number {
+  const left = computeLeftEyeEAR(lm);
+  const right = computeRightEyeEAR(lm);
+  const spanL = dist2D(lm[L_LEFT], lm[L_RIGHT]);
+  const spanR = dist2D(lm[R_LEFT], lm[R_RIGHT]);
+  const maxS = Math.max(spanL, spanR);
+  const minS = Math.min(spanL, spanR);
+  if (maxS < 1e-6) return (left + right) / 2;
+
+  // Strong profile: one eye almost edge-on — trust the wider (more frontal) eye.
+  if (minS / maxS < 0.32) {
+    return spanL >= spanR ? left : right;
+  }
+
+  const sum = spanL + spanR;
+  return (spanL / sum) * left + (spanR / sum) * right;
+}
+
+/** Nose lateral offset vs eye midline, normalized by inter-eye distance (~0 frontal, higher when head turns). */
+export function estimateFaceYawNorm(lm: FaceLandmark[]): number {
+  const nose = lm[1];
+  const le = lm[33];
+  const re = lm[263];
+  if (!nose || !le || !re) return 0;
+  const mid = (le.x + re.x) / 2;
+  const interEye = dist2D(le, re);
+  return Math.abs((nose.x - mid) / Math.max(interEye, 1e-4));
+}
+
+/**
+ * Eye-closed check using adaptive EAR and a slightly widened threshold when the
+ * head is turned (residual bias after geometric weighting).
+ */
+export function isEyeClosedAdaptive(ear: number, lm: FaceLandmark[]): boolean {
+  const yn = estimateFaceYawNorm(lm);
+  const widen = clampRange(1 + 0.1 * Math.min(yn, 0.65), 1, 1.12);
+  return ear < personalEARThreshold * widen;
 }
 
 // ─── Mouth Aspect Ratio (yawn) ────────────────────────────────────────────────
 export function computeMAR(lm: FaceLandmark[]): number {
   const vertical   = dist2D(lm[M_TOP],  lm[M_BOT]);
   const horizontal = dist2D(lm[M_LEFT], lm[M_RIGHT]);
-  return vertical / horizontal;
+  return vertical / Math.max(horizontal, 1e-6);
+}
+
+/**
+ * Yaw-aware MAR: when the head turns, mouth width shrinks in 2D and MAR inflates.
+ * Dampen using a simple yaw proxy so yawns are less confused with head pose.
+ */
+export function computeAdaptiveMAR(lm: FaceLandmark[]): number {
+  const base = computeMAR(lm);
+  const yn = estimateFaceYawNorm(lm);
+  const dampen = 1 / (1 + 0.28 * Math.min(yn, 0.7));
+  return base * dampen;
+}
+
+export function isYawningAdaptive(mar: number, lm: FaceLandmark[]): boolean {
+  const yn = estimateFaceYawNorm(lm);
+  const stricter = clampRange(1 + 0.1 * Math.min(yn, 0.65), 1, 1.14);
+  return mar > personalMARThreshold * stricter;
 }
 
 // ─── Threshold functions ──────────────────────────────────────────────────────
