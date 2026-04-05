@@ -9,7 +9,7 @@
  * camera preview (powered by `useDrowsinessDetector`) sits in the corner and
  * drives a live status chip + danger banner up top.
  */
-import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import Link from 'next/link';
 import dynamic from 'next/dynamic';
 import { useRouter } from 'next/navigation';
@@ -23,6 +23,7 @@ import {
   getCalibrationServerSnapshot,
 } from '@/lib/drowsiness';
 import { useDrowsinessDetector } from '@/lib/useDrowsinessDetector';
+import { useSafetyAgent } from '@/lib/safety-client';
 
 // Dynamic import — Google Maps must run client-side only.
 const GoogleNavigationMap = dynamic(
@@ -121,8 +122,50 @@ export default function Home() {
     faceDetected,
     blinkRate,
     alertCount,
+    ear,
+    mar,
+    warningCount,
+    dangerCount,
+    sessionTime,
+    yawning,
+    closedFrames,
     error: detectorError,
+    setSessionMeta,
   } = detector;
+
+  // Stable session ID — regenerated when monitoring restarts.
+  const sessionIdRef = useRef(`session_${Date.now()}`);
+  useEffect(() => {
+    if (monitoring) sessionIdRef.current = `session_${Date.now()}`;
+  }, [monitoring]);
+
+  // Fetch.ai safety agent — sends telemetry every 2 s, gets back tripScore.
+  const { decision: agentDecision } = useSafetyAgent({
+    sessionId: sessionIdRef.current,
+    enabled: monitoring,
+    state: drowsinessState,
+    closedFrames,
+    ear,
+    mar,
+    blinkRate,
+    yawning,
+    calibrated,
+  });
+
+  // Feed the agent's trip score back into the session record.
+  useEffect(() => {
+    if (agentDecision?.tripScore != null) {
+      setSessionMeta({ agentTripScore: agentDecision.tripScore });
+    }
+  }, [agentDecision?.tripScore, setSessionMeta]);
+
+  // When the navigation destination changes, record it on the session.
+  const handleRouteMeta = useCallback(
+    (meta: { destinationLabel?: string } | null) => {
+      setSessionMeta({ destination: meta?.destinationLabel ?? undefined });
+    },
+    [setSessionMeta],
+  );
 
   // Watchdog: keep monitoring running at all times while on this page.
   // Fires on mount and any time `monitoring` drops to false.
@@ -316,7 +359,10 @@ export default function Home() {
         <div className="nav-screen">
           {/* Edge-to-edge map layer */}
           <div className="nav-map-layer">
-            <GoogleNavigationMap drowsinessState={drowsinessState} />
+            <GoogleNavigationMap
+              drowsinessState={drowsinessState}
+              onRouteMetaChange={handleRouteMeta}
+            />
           </div>
 
           {/* Camera runs invisibly — hook needs the DOM ref to attach MediaStream */}

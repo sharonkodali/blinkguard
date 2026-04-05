@@ -15,28 +15,36 @@ export interface LiveSessionSnapshot {
   isActive: boolean;
   faceDetected: boolean;
   ear: number;
+  mar: number;
   closedFrames: number;
   blinkRate: number;
   alertCount: number;
+  warningCount: number;
+  dangerCount: number;
   sessionTime: number; // seconds
   yawning: boolean;
   drowsinessState: DrowsinessState;
   eyeOpenPct: number;
   startedAt: number | null;
+  destination: string | null;
 }
 
 const initialSnapshot: LiveSessionSnapshot = {
   isActive: false,
   faceDetected: false,
   ear: 0,
+  mar: 0,
   closedFrames: 0,
   blinkRate: 0,
   alertCount: 0,
+  warningCount: 0,
+  dangerCount: 0,
   sessionTime: 0,
   yawning: false,
   drowsinessState: 'awake',
   eyeOpenPct: 0,
   startedAt: null,
+  destination: null,
 };
 
 let snapshot: LiveSessionSnapshot = initialSnapshot;

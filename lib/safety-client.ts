@@ -44,6 +44,7 @@ export interface UseSafetyAgentInput {
   state: DrowsinessState;
   closedFrames: number;
   ear: number;
+  mar: number;
   blinkRate: number;
   yawning: boolean;
   calibrated: boolean;
@@ -66,7 +67,8 @@ export function useSafetyAgent(input: UseSafetyAgentInput) {
       state: cur.state,
       calibrated: cur.calibrated,
       signals: [
-        { kind: 'ear' satisfies SignalKind,          value: cur.ear },
+        { kind: 'ear' satisfies SignalKind,           value: cur.ear },
+        { kind: 'mar' satisfies SignalKind,           value: cur.mar },
         { kind: 'closed_frames' satisfies SignalKind, value: cur.closedFrames },
         { kind: 'blink_rate' satisfies SignalKind,    value: cur.blinkRate },
         { kind: 'yawn' satisfies SignalKind,          value: cur.yawning ? 1 : 0 },

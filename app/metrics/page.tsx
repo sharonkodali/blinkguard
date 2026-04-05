@@ -178,6 +178,7 @@ export default function MetricsPage() {
         .m-live-title { font-weight: 600; font-size: 0.82rem; letter-spacing: 0.02em; }
         .m-live-tag { margin-left: auto; font-size: 0.62rem; text-transform: uppercase; letter-spacing: 0.08em; padding: 0.2rem 0.55rem; border-radius: 9999px; background: rgba(255,255,255,0.22); border: 1px solid rgba(255,255,255,0.3); }
         .m-live-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.5rem; }
+        .m-live-grid-wide { display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.5rem; margin-top: 0.5rem; }
         .m-live-cell { background: rgba(255,255,255,0.14); border-radius: 0.625rem; padding: 0.55rem 0.4rem; text-align: center; }
         .m-live-cell .v { font-size: 1.05rem; font-weight: 600; color: #fff; }
         .m-live-cell .l { font-size: 0.58rem; text-transform: uppercase; letter-spacing: 0.06em; color: rgba(255,255,255,0.85); margin-top: 0.15rem; }
@@ -239,6 +240,30 @@ export default function MetricsPage() {
         .m-drive-stats span strong { color: var(--ios-midnight); font-weight: 600; }
         .m-drive-insight { font-size: 0.8rem; line-height: 1.45; color: #334155; }
         .m-section-title { color: var(--ios-midnight); font-size: 0.95rem; font-weight: 600; margin-bottom: 0.5rem; }
+
+        /* EAR / MAR gauge rows */
+        .m-gauge-card { background: #fff; border: 1px solid var(--ios-border); border-radius: 1rem; padding: 1rem 1.1rem; box-shadow: 0 1px 2px rgba(0,0,0,.04); }
+        .m-gauge-title { color: var(--ios-midnight); font-weight: 600; font-size: 0.85rem; margin-bottom: 0.75rem; }
+        .m-gauge-row { display: flex; align-items: center; gap: 0.625rem; margin-bottom: 0.5rem; }
+        .m-gauge-label { font-size: 0.7rem; font-weight: 600; color: var(--ios-muted-foreground); width: 3rem; flex-shrink: 0; }
+        .m-gauge-track { flex: 1; height: 0.5rem; background: var(--ios-background); border-radius: 99px; overflow: hidden; }
+        .m-gauge-fill { height: 100%; border-radius: 99px; transition: width 0.4s; }
+        .m-gauge-fill.ear { background: linear-gradient(90deg, #10b981, #059669); }
+        .m-gauge-fill.mar { background: linear-gradient(90deg, #f59e0b, #d97706); }
+        .m-gauge-val { font-size: 0.72rem; font-weight: 700; color: var(--ios-midnight); width: 2.8rem; text-align: right; flex-shrink: 0; }
+
+        /* Per-drive expanded stats */
+        .m-drive-earmar { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-top: 0.375rem; }
+        .m-drive-badge {
+          font-size: 0.65rem; font-weight: 700; padding: 0.2rem 0.55rem;
+          border-radius: 99px; border: 1px solid;
+        }
+        .m-drive-badge.ear  { color: #059669; background: rgba(16,185,129,0.08); border-color: rgba(16,185,129,0.3); }
+        .m-drive-badge.mar  { color: #d97706; background: rgba(245,158,11,0.08); border-color: rgba(245,158,11,0.3); }
+        .m-drive-badge.warn { color: #b45309; background: rgba(245,158,11,0.08); border-color: rgba(245,158,11,0.3); }
+        .m-drive-badge.dngr { color: #b91c1c; background: rgba(239,68,68,0.08);  border-color: rgba(239,68,68,0.3); }
+        .m-drive-badge.dest { color: #1d4ed8; background: rgba(59,130,246,0.08); border-color: rgba(59,130,246,0.3); }
+        .m-drive-badge.agent{ color: #7c3aed; background: rgba(124,58,237,0.08); border-color: rgba(124,58,237,0.3); }
       `}</style>
 
       <div className="ios-app">
@@ -289,12 +314,30 @@ export default function MetricsPage() {
                     <div className="l">Blinks/min</div>
                   </div>
                   <div className="m-live-cell">
-                    <div className="v">{live.faceDetected ? `${live.eyeOpenPct}%` : '—'}</div>
-                    <div className="l">Eye Open</div>
+                    <div className="v">{live.faceDetected ? live.ear.toFixed(2) : '—'}</div>
+                    <div className="l">EAR</div>
                   </div>
+                  <div className="m-live-cell">
+                    <div className="v">{live.faceDetected ? live.mar.toFixed(2) : '—'}</div>
+                    <div className="l">MAR</div>
+                  </div>
+                </div>
+                <div className="m-live-grid-wide">
                   <div className="m-live-cell">
                     <div className="v">{live.alertCount}</div>
                     <div className="l">Alerts</div>
+                  </div>
+                  <div className="m-live-cell">
+                    <div className="v">{live.warningCount}</div>
+                    <div className="l">⚠️ Frames</div>
+                  </div>
+                  <div className="m-live-cell">
+                    <div className="v">{live.dangerCount}</div>
+                    <div className="l">🚨 Frames</div>
+                  </div>
+                  <div className="m-live-cell">
+                    <div className="v">{live.faceDetected ? `${live.eyeOpenPct}%` : '—'}</div>
+                    <div className="l">Eye Open</div>
                   </div>
                 </div>
               </div>
@@ -401,6 +444,34 @@ export default function MetricsPage() {
                   </div>
                 )}
 
+                {/* ── EAR / MAR overview (per-session gauges) ── */}
+                {sortedSessions.some(s => s.avgEAR || s.avgMAR) && (
+                  <div className="m-gauge-card">
+                    <p className="m-gauge-title">Avg EAR &amp; MAR per session</p>
+                    {sortedSessions.slice(0, 5).map((s) => (
+                      <div key={s.id}>
+                        <div style={{ fontSize: '0.65rem', color: 'var(--ios-muted-foreground)', marginBottom: '0.2rem' }}>
+                          {formatSessionDate(s.startTime)}{s.destination ? ` → ${s.destination}` : ''}
+                        </div>
+                        <div className="m-gauge-row">
+                          <span className="m-gauge-label">EAR</span>
+                          <div className="m-gauge-track">
+                            <div className="m-gauge-fill ear" style={{ width: `${Math.min(100, (s.avgEAR / 0.4) * 100)}%` }} />
+                          </div>
+                          <span className="m-gauge-val">{s.avgEAR?.toFixed(3) ?? '—'}</span>
+                        </div>
+                        <div className="m-gauge-row" style={{ marginBottom: '0.75rem' }}>
+                          <span className="m-gauge-label">MAR</span>
+                          <div className="m-gauge-track">
+                            <div className="m-gauge-fill mar" style={{ width: `${Math.min(100, (s.avgMAR / 0.8) * 100)}%` }} />
+                          </div>
+                          <span className="m-gauge-val">{s.avgMAR?.toFixed(3) ?? '—'}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
                 {/* ── Weekly chart ── */}
                 <div className="m-chart-card">
                   <h3 className="m-chart-title">Weekly Safety Score</h3>
@@ -438,16 +509,30 @@ export default function MetricsPage() {
                             </span>
                           </div>
                           <div className="m-drive-stats">
-                            <span>
-                              <strong>{formatDuration(s.duration)}</strong> drive
-                            </span>
-                            <span>
-                              <strong>{s.alerts}</strong> alert{s.alerts === 1 ? '' : 's'}
-                            </span>
+                            <span><strong>{formatDuration(s.duration)}</strong> drive</span>
+                            <span><strong>{s.alerts}</strong> alert{s.alerts === 1 ? '' : 's'}</span>
                             {typeof s.safetyScore === 'number' && (
-                              <span>
-                                <strong>{Math.round(s.safetyScore)}</strong>/100
-                              </span>
+                              <span><strong>{Math.round(s.safetyScore)}</strong>/100</span>
+                            )}
+                          </div>
+                          <div className="m-drive-earmar">
+                            {s.avgEAR > 0 && (
+                              <span className="m-drive-badge ear">EAR {s.avgEAR.toFixed(3)}</span>
+                            )}
+                            {s.avgMAR > 0 && (
+                              <span className="m-drive-badge mar">MAR {s.avgMAR.toFixed(3)}</span>
+                            )}
+                            {s.warningCount > 0 && (
+                              <span className="m-drive-badge warn">⚠️ {s.warningCount} frames</span>
+                            )}
+                            {s.dangerCount > 0 && (
+                              <span className="m-drive-badge dngr">🚨 {s.dangerCount} frames</span>
+                            )}
+                            {s.destination && (
+                              <span className="m-drive-badge dest">📍 {s.destination}</span>
+                            )}
+                            {s.agentTripScore != null && (
+                              <span className="m-drive-badge agent">Fetch.ai score {s.agentTripScore}</span>
                             )}
                           </div>
                           {insight?.insight && (

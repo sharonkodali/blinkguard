@@ -1,13 +1,17 @@
 // Session data management for drowsiness tracking
 export interface SessionData {
   id: string;
-  startTime: number; // timestamp
-  duration: number; // seconds
-  alerts: number;
-  avgEAR?: number;
-  avgMAR?: number;
-  maxClosedFrames?: number;
-  safetyScore?: number;
+  startTime: number;      // epoch ms
+  duration: number;       // seconds
+  alerts: number;         // total alert triggers
+  warningCount: number;   // frames in 'warning' state
+  dangerCount: number;    // frames in 'danger' state
+  avgEAR: number;         // mean Eye Aspect Ratio over session
+  avgMAR: number;         // mean Mouth Aspect Ratio over session
+  maxClosedFrames: number;
+  safetyScore: number;    // 0-100 computed score
+  agentTripScore?: number;// trip score from Fetch.ai agent
+  destination?: string;   // navigation destination if active
   notes?: string;
 }
 

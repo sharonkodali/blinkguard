@@ -49,15 +49,20 @@ export interface DrowsinessDetectorState {
   start: () => Promise<void>;
   stop: () => void;
   ear: number;
+  mar: number;
   closedFrames: number;
   drowsinessState: DrowsinessState;
   faceDetected: boolean;
   yawning: boolean;
   alertCount: number;
+  warningCount: number;
+  dangerCount: number;
   sessionTime: number;
   blinkRate: number;
   eyeOpenPct: number;
   error: string | null;
+  /** Call from outside to attach navigation destination/agent score to session. */
+  setSessionMeta: (meta: { destination?: string; agentTripScore?: number }) => void;
 }
 
 export function useDrowsinessDetector(
@@ -70,11 +75,14 @@ export function useDrowsinessDetector(
 
   const [isStarted, setIsStarted] = useState(false);
   const [ear, setEar] = useState(0);
+  const [mar, setMar] = useState(0);
   const [closedFrames, setClosedFrames] = useState(0);
   const [drowsinessState, setDrowsinessState] = useState<DrowsinessState>('awake');
   const [yawning, setYawning] = useState(false);
   const [faceDetected, setFaceDetected] = useState(false);
   const [alertCount, setAlertCount] = useState(0);
+  const [warningCount, setWarningCount] = useState(0);
+  const [dangerCount, setDangerCount] = useState(0);
   const [sessionTime, setSessionTime] = useState(0);
   const [blinkRate, setBlinkRate] = useState(0);
   const [error, setError] = useState<string | null>(null);
@@ -85,11 +93,22 @@ export function useDrowsinessDetector(
   const blinkCountRef = useRef(0);
   const maxClosedFramesRef = useRef(0);
   const earValuesRef = useRef<number[]>([]);
+  const marValuesRef = useRef<number[]>([]);
+  const warningCountRef = useRef(0);
+  const dangerCountRef = useRef(0);
   const sessionStartRef = useRef<number | null>(null);
+  const sessionMetaRef = useRef<{ destination?: string; agentTripScore?: number }>({});
   const alertCoolingRef = useRef(false);
   const lastAlertRef = useRef(0);
   const cameraInstanceRef = useRef<{ stop: () => void } | null>(null);
   const faceMeshInstanceRef = useRef<{ close: () => void } | null>(null);
+
+  const setSessionMeta = useCallback(
+    (meta: { destination?: string; agentTripScore?: number }) => {
+      sessionMetaRef.current = { ...sessionMetaRef.current, ...meta };
+    },
+    [],
+  );
 
   const eyeOpenPct = Math.max(0, Math.min(100, Math.round((ear / 0.3) * 100)));
 
@@ -116,22 +135,29 @@ export function useDrowsinessDetector(
       isActive: true,
       faceDetected,
       ear,
+      mar,
       closedFrames,
       blinkRate,
       alertCount,
+      warningCount,
+      dangerCount,
       sessionTime,
       yawning,
       drowsinessState,
       eyeOpenPct,
       startedAt: sessionStartRef.current,
+      destination: sessionMetaRef.current.destination ?? null,
     });
   }, [
     isStarted,
     faceDetected,
     ear,
+    mar,
     closedFrames,
     blinkRate,
     alertCount,
+    warningCount,
+    dangerCount,
     sessionTime,
     yawning,
     drowsinessState,
@@ -196,9 +222,15 @@ export function useDrowsinessDetector(
       blinkCountRef.current = 0;
       maxClosedFramesRef.current = 0;
       earValuesRef.current = [];
+      marValuesRef.current = [];
+      warningCountRef.current = 0;
+      dangerCountRef.current = 0;
+      sessionMetaRef.current = {};
       sessionStartRef.current = Date.now();
       setSessionTime(0);
       setAlertCount(0);
+      setWarningCount(0);
+      setDangerCount(0);
       setIsStarted(true);
 
       // Dynamic imports — MediaPipe must not run during SSR.
@@ -243,6 +275,7 @@ export function useDrowsinessDetector(
           const currentEAR = computeEAR(lm);
           const currentMAR = computeMAR(lm);
           setEar(parseFloat(currentEAR.toFixed(3)));
+          setMar(parseFloat(currentMAR.toFixed(3)));
 
           const closed = isEyeClosed(currentEAR);
           if (closed && !lastClosedRef.current) blinkCountRef.current += 1;
@@ -253,6 +286,7 @@ export function useDrowsinessDetector(
             : Math.max(0, closedRef.current - 2);
           setClosedFrames(closedRef.current);
           earValuesRef.current.push(currentEAR);
+          marValuesRef.current.push(currentMAR);
           if (closedRef.current > maxClosedFramesRef.current) {
             maxClosedFramesRef.current = closedRef.current;
           }
@@ -261,7 +295,16 @@ export function useDrowsinessDetector(
           setYawning(yawn);
           const state = getDrowsinessState(closedRef.current, yawn);
           setDrowsinessState(state);
-          if (state === 'danger') triggerAlert();
+
+          // Count frames spent in each alert state
+          if (state === 'warning') {
+            warningCountRef.current += 1;
+            setWarningCount(warningCountRef.current);
+          } else if (state === 'danger') {
+            dangerCountRef.current += 1;
+            setDangerCount(dangerCountRef.current);
+            triggerAlert();
+          }
 
           // Optional canvas overlays
           if (drawMesh && ctx && canvas) {
@@ -345,19 +388,22 @@ export function useDrowsinessDetector(
     faceMeshInstanceRef.current = null;
 
     if (persistOnStop && sessionStartRef.current && sessionTime > 0) {
-      const avgEAR =
-        earValuesRef.current.length > 0
-          ? earValuesRef.current.reduce((a, b) => a + b, 0) / earValuesRef.current.length
-          : 0;
+      const avg = (arr: number[]) =>
+        arr.length > 0 ? arr.reduce((a, b) => a + b, 0) / arr.length : 0;
       addSession({
         duration: sessionTime,
         alerts: alertCount,
-        avgEAR,
+        warningCount: warningCountRef.current,
+        dangerCount: dangerCountRef.current,
+        avgEAR: parseFloat(avg(earValuesRef.current).toFixed(4)),
+        avgMAR: parseFloat(avg(marValuesRef.current).toFixed(4)),
         maxClosedFrames: maxClosedFramesRef.current,
         safetyScore: Math.max(
           0,
-          100 - alertCount * 20 - maxClosedFramesRef.current * 0.5,
+          Math.round(100 - alertCount * 15 - maxClosedFramesRef.current * 0.4),
         ),
+        agentTripScore: sessionMetaRef.current.agentTripScore,
+        destination: sessionMetaRef.current.destination,
       });
     }
 
@@ -367,6 +413,9 @@ export function useDrowsinessDetector(
     setDrowsinessState('awake');
     setClosedFrames(0);
     setEar(0);
+    setMar(0);
+    setWarningCount(0);
+    setDangerCount(0);
     resetLiveSession();
   }, [alertCount, persistOnStop, sessionTime]);
 
@@ -389,14 +438,18 @@ export function useDrowsinessDetector(
     start,
     stop,
     ear,
+    mar,
     closedFrames,
     drowsinessState,
     faceDetected,
     yawning,
     alertCount,
+    warningCount,
+    dangerCount,
     sessionTime,
     blinkRate,
     eyeOpenPct,
     error,
+    setSessionMeta,
   };
 }
