@@ -19,18 +19,26 @@ export default function AlertBanner({ drowsinessState }: Props) {
   if (!show) return null;
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex flex-col items-center justify-center animate-pulse pointer-events-none"
-      style={{ background: 'rgba(185, 28, 28, 0.88)' }}
-    >
-      <span className="text-8xl">😴</span>
-      <h1 className="text-5xl font-black text-white mt-4 tracking-tight text-center">
-        WAKE UP!
-      </h1>
-      <p className="text-2xl text-white/90 mt-3 text-center">
-        PULL OVER SAFELY
-      </p>
-      <span className="text-5xl mt-6">🚨</span>
-    </div>
+    <>
+      <style>{`
+        .ab-overlay {
+          position: fixed; inset: 0; z-index: 50; display: flex; flex-direction: column;
+          align-items: center; justify-content: center; pointer-events: none;
+          background: rgba(15, 14, 71, 0.88); backdrop-filter: blur(6px);
+          border: 1px solid rgba(134, 134, 172, 0.25); animation: ab-pulse 0.6s ease-in-out;
+        }
+        @keyframes ab-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.82; } }
+        .ab-emoji { font-size: 3rem; opacity: 0.9; }
+        .ab-title { font-size: clamp(1.5rem, 5vw, 2rem); font-weight: 700; color: var(--text); margin-top: 1rem; text-align: center; letter-spacing: 0.04em; }
+        .ab-subtitle { font-size: 0.95rem; color: var(--text-muted); margin-top: 0.6rem; text-align: center; max-width: 280px; line-height: 1.5; }
+        .ab-siren { font-size: 1.75rem; margin-top: 1.25rem; opacity: 0.85; }
+      `}</style>
+      <div className="ab-overlay">
+        <span className="ab-emoji">😴</span>
+        <h1 className="ab-title">WAKE UP!</h1>
+        <p className="ab-subtitle">PULL OVER SAFELY</p>
+        <span className="ab-siren">🚨</span>
+      </div>
+    </>
   );
 }

@@ -195,118 +195,141 @@ export default function CalibrationWizard({
   }, [onCalibrationComplete]);
 
   return (
-    <div className="h-screen w-screen bg-gray-950 text-white flex flex-col items-center justify-start p-4 gap-4 overflow-hidden">
-      <h1 className="text-2xl font-extrabold text-red-400 mt-2">BlinkGuard Calibration</h1>
+    <>
+      <style>{`
+        .cw { width: 100vw; height: 100vh; background: var(--bg); color: var(--text); display: flex; flex-direction: column; align-items: center; justify-content: flex-start; padding: 1rem; gap: 1rem; overflow: hidden; font-family: inherit; }
+        .cw-title { font-size: 1.5rem; font-weight: 900; color: var(--red); margin-top: 0.5rem; }
+        .cw-video-container { position: relative; width: 384px; height: 288px; border-radius: var(--radius); overflow: hidden; border: 2px solid var(--blue-soft); background: var(--surface); }
+        .cw-video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); }
+        .cw-canvas { position: absolute; inset: 0; width: 100%; height: 100%; transform: scaleX(-1); }
+        .cw-metrics { display: flex; gap: 32px; text-align: center; }
+        .cw-metric { background: var(--surface2); border-radius: var(--radius-sm); padding: 12px; border: 1px solid var(--border); }
+        .cw-metric-label { font-size: 0.75rem; color: var(--text-faint); letter-spacing: 0.1em; margin-bottom: 4px; }
+        .cw-metric-value { font-size: 2rem; font-family: 'JetBrains Mono', monospace; font-weight: 700; color: var(--blue-soft); }
+        .cw-step { display: flex; flex-direction: column; align-items: center; gap: 1.5rem; }
+        .cw-emoji { font-size: 3rem; animation: cw-pulse 1s infinite; }
+        .cw-step-title { font-size: 1.25rem; font-weight: 700; text-align: center; }
+        .cw-timer { font-size: 3.5rem; font-weight: 700; color: var(--blue-soft); }
+        .cw-step-subtitle { font-size: 0.875rem; color: var(--text-faint); text-align: center; max-width: 20rem; }
+        .cw-button-group { display: flex; flex-direction: column; gap: 1rem; align-items: center; }
+        .cw-button { padding: 0.75rem 2rem; border-radius: var(--radius-sm); border: none; font-weight: 700; font-size: 0.95rem; cursor: pointer; transition: all 0.2s; }
+        .cw-button-primary { background: var(--red); color: var(--text); }
+        .cw-button-primary:hover { background: #ff6b6b; }
+        .cw-button-secondary { background: var(--surface2); color: var(--text-muted); border: 1px solid var(--border); }
+        .cw-button-secondary:hover { background: var(--surface3); color: var(--text); }
+        .cw-complete { text-align: center; }
+        .cw-complete-emoji { font-size: 4rem; }
+        .cw-complete-title { font-size: 1.5rem; font-weight: 700; margin-top: 1rem; }
+        .cw-complete-subtitle { color: var(--text-muted); max-width: 20rem; margin-top: 0.5rem; }
+        @keyframes cw-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.6; } }
+      `}</style>
+      <div className="cw">
+        <h1 className="cw-title">BlinkGuard Calibration</h1>
 
-      {/* Camera Feed Container */}
-      <div className="relative w-96 h-72 rounded-lg overflow-hidden border-2 border-green-500 bg-gray-900">
-        <video
-          ref={videoRef}
-          autoPlay
-          muted
-          playsInline
-          className="absolute inset-0 w-full h-full object-cover"
-          style={{ transform: 'scaleX(-1)' }}
-        />
-        <canvas
-          ref={canvasRef}
-          className="absolute inset-0 w-full h-full"
-          style={{ transform: 'scaleX(-1)' }}
-        />
+        {/* Camera Feed Container */}
+        <div className="cw-video-container">
+          <video
+            ref={videoRef}
+            autoPlay
+            muted
+            playsInline
+            className="cw-video"
+          />
+          <canvas
+            ref={canvasRef}
+            className="cw-canvas"
+          />
+        </div>
+
+        {/* Real-time Metrics Display */}
+        <div className="cw-metrics">
+          <div className="cw-metric">
+            <p className="cw-metric-label">EAR (Eye Aspect Ratio)</p>
+            <p className="cw-metric-value">{currentEAR.toFixed(3)}</p>
+          </div>
+          <div className="cw-metric">
+            <p className="cw-metric-label">MAR (Mouth Aspect Ratio)</p>
+            <p className="cw-metric-value">{currentMAR.toFixed(3)}</p>
+          </div>
+        </div>
+
+        {step === 'start' && (
+          <div className="cw-step">
+            <div className="cw-emoji">👁</div>
+            <p className="cw-step-title">Eye Calibration Setup</p>
+            <p className="cw-step-subtitle">
+              We'll guide you through simple eye movements to calibrate the system for your unique eyes.
+            </p>
+            <div className="cw-button-group">
+              <button onClick={startStep} className="cw-button cw-button-primary">
+                Start Calibration
+              </button>
+              <button onClick={skipCalibration} className="cw-button cw-button-secondary">
+                Skip for now
+              </button>
+            </div>
+          </div>
+        )}
+
+        {step === 'eyes-open' && (
+          <div className="cw-step">
+            <div className="cw-emoji">📖</div>
+            <p className="cw-step-title">Keep eyes wide open</p>
+            <div className="cw-timer">{timeRemaining}</div>
+            <p className="cw-step-subtitle">
+              Look at the camera. Keep eyes as open as possible. (EAR should be high)
+            </p>
+          </div>
+        )}
+
+        {step === 'eyes-closed' && (
+          <div className="cw-step">
+            <div className="cw-emoji">😴</div>
+            <p className="cw-step-title">Close your eyes fully</p>
+            <div className="cw-timer">{timeRemaining}</div>
+            <p className="cw-step-subtitle">
+              Completely close your eyes and keep them shut. (EAR should be low)
+            </p>
+          </div>
+        )}
+
+        {step === 'normal-blink' && (
+          <div className="cw-step">
+            <div className="cw-emoji">✨</div>
+            <p className="cw-step-title">Blink naturally</p>
+            <div className="cw-timer">{timeRemaining}</div>
+            <p className="cw-step-subtitle">
+              Perform 3-4 natural blinks at your normal pace.
+            </p>
+          </div>
+        )}
+
+        {step === 'yawning' && (
+          <div className="cw-step">
+            <div className="cw-emoji">🥱</div>
+            <p className="cw-step-title">Perform a few yawns</p>
+            <div className="cw-timer">{timeRemaining}</div>
+            <p className="cw-step-subtitle">
+              Open your mouth wide like you're yawning. 2-3 yawns is enough.
+            </p>
+          </div>
+        )}
+
+        {step === 'complete' && (
+          <div className="cw-step cw-complete">
+            <div className="cw-complete-emoji">✅</div>
+            <p className="cw-complete-title">Calibration Complete!</p>
+            <p className="cw-complete-subtitle">
+              Your personalized thresholds have been set. BlinkGuard is now optimized for your eyes.
+            </p>
+            <div className="cw-button-group" style={{ marginTop: '1rem' }}>
+              <button onClick={() => onCalibrationComplete()} className="cw-button cw-button-primary">
+                Start Monitoring
+              </button>
+            </div>
+          </div>
+        )}
       </div>
-
-      {/* Real-time Metrics Display */}
-      <div className="flex gap-8 text-center">
-        <div className="bg-gray-900 rounded-lg p-3 border border-gray-700">
-          <p className="text-xs text-gray-400">EAR (Eye Aspect Ratio)</p>
-          <p className="text-3xl font-mono font-bold text-green-400">{currentEAR.toFixed(3)}</p>
-        </div>
-        <div className="bg-gray-900 rounded-lg p-3 border border-gray-700">
-          <p className="text-xs text-gray-400">MAR (Mouth Aspect Ratio)</p>
-          <p className="text-3xl font-mono font-bold text-blue-400">{currentMAR.toFixed(3)}</p>
-        </div>
-      </div>
-
-      {step === 'start' && (
-        <div className="flex flex-col items-center gap-4">
-          <div className="text-6xl">👁</div>
-          <p className="text-center text-gray-300 max-w-sm">
-            We'll guide you through simple eye movements to calibrate the system for your unique eyes.
-          </p>
-          <button
-            onClick={startStep}
-            className="mt-4 py-3 px-8 rounded-lg bg-red-600 hover:bg-red-700 text-white font-bold"
-          >
-            Start Calibration
-          </button>
-          <button
-            onClick={skipCalibration}
-            className="py-2 px-6 rounded-lg bg-gray-700 hover:bg-gray-600 text-gray-200 text-sm"
-          >
-            Skip for now
-          </button>
-        </div>
-      )}
-
-      {step === 'eyes-open' && (
-        <div className="flex flex-col items-center gap-6">
-          <div className="text-5xl animate-pulse">📖</div>
-          <p className="text-xl font-bold text-center">Keep your eyes wide open</p>
-          <div className="text-6xl font-bold text-green-400">{timeRemaining}</div>
-          <div className="text-sm text-gray-400 text-center max-w-xs">
-            Look at the camera. Keep eyes as open as possible. (EAR should be high)
-          </div>
-        </div>
-      )}
-
-      {step === 'eyes-closed' && (
-        <div className="flex flex-col items-center gap-6">
-          <div className="text-5xl animate-pulse">😴</div>
-          <p className="text-xl font-bold text-center">Close your eyes fully</p>
-          <div className="text-6xl font-bold text-yellow-400">{timeRemaining}</div>
-          <div className="text-sm text-gray-400 text-center max-w-xs">
-            Completely close your eyes and keep them shut. (EAR should be low)
-          </div>
-        </div>
-      )}
-
-      {step === 'normal-blink' && (
-        <div className="flex flex-col items-center gap-6">
-          <div className="text-5xl animate-pulse">✨</div>
-          <p className="text-xl font-bold text-center">Blink naturally</p>
-          <div className="text-6xl font-bold text-blue-400">{timeRemaining}</div>
-          <div className="text-sm text-gray-400 text-center max-w-xs">
-            Perform 3-4 natural blinks at your normal pace.
-          </div>
-        </div>
-      )}
-
-      {step === 'yawning' && (
-        <div className="flex flex-col items-center gap-6">
-          <div className="text-5xl animate-pulse">🥱</div>
-          <p className="text-xl font-bold text-center">Perform a few yawns</p>
-          <div className="text-6xl font-bold text-purple-400">{timeRemaining}</div>
-          <div className="text-sm text-gray-400 text-center max-w-xs">
-            Open your mouth wide like you're yawning. 2-3 yawns is enough.
-          </div>
-        </div>
-      )}
-
-      {step === 'complete' && (
-        <div className="flex flex-col items-center gap-6 text-center">
-          <div className="text-6xl">✅</div>
-          <p className="text-2xl font-bold">Calibration Complete!</p>
-          <p className="text-gray-400 max-w-sm">
-            Your personalized thresholds have been set. BlinkGuard is now optimized for your eyes.
-          </p>
-          <button
-            onClick={() => onCalibrationComplete()}
-            className="mt-4 py-3 px-8 rounded-lg bg-green-600 hover:bg-green-700 text-white font-bold"
-          >
-            Start Monitoring
-          </button>
-        </div>
-      )}
-    </div>
+    </>
   );
 }

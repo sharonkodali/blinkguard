@@ -1,18 +1,77 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* Blue Eclipse — minimalist dark UI (#0F0E47 · #272757 · #505081 · #8686AC) */
+:root {
+  --bg:            #0F0E47;
+  --surface:       #272757;
+  --surface-inner: rgba(39, 39, 87, 0.65);
+  --border:        rgba(80, 80, 129, 0.35);
+  --border-strong: rgba(134, 134, 172, 0.28);
+  --text:          #ECECF4;
+  --text-muted:    #8686AC;
+  --text-faint:    rgba(134, 134, 172, 0.55);
+  --accent:        #8686AC;
+  --accent-dim:    rgba(134, 134, 172, 0.12);
+  --accent-muted:  rgba(134, 134, 172, 0.08);
+  --slate:         #505081;
+  --blue-deep:     #0F0E47;
+  --blue-mid:      #272757;
+  --blue-slate:    #505081;
+  --blue-soft:     #8686AC;
+  /* Semantic: only palette-derived tints (no bright teal/red) */
+  --state-calm:    #8686AC;
+  --state-notice:  rgba(80, 80, 129, 0.85);
+  --state-urgent:  rgba(134, 134, 172, 0.95);
+  --radius:        14px;
+  --radius-sm:     10px;
+  --radius-pill:   9999px;
+  --shadow-card:   0 1px 0 rgba(134, 134, 172, 0.06);
+  /* Legacy names — kept for existing components; values stay in-family */
+  --red:           #C4B2C8;
+  --amber:         #A8A6CC;
+  --yellow:        var(--amber);
+  --yellow-muted:  rgba(80, 80, 129, 0.2);
+  --yellow-border: rgba(134, 134, 172, 0.22);
+  --surface2:      var(--surface);
+  --surface3:      var(--slate);
+  --accent-border: var(--border-strong);
+}
 
 *, *::before, *::after { box-sizing: border-box; }
 
 html, body {
   margin: 0;
   padding: 0;
-  background-color: #030712;
-  color: white;
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'Inter', system-ui, sans-serif;
+  font-size: 15px;
+  line-height: 1.55;
   -webkit-font-smoothing: antialiased;
   -webkit-tap-highlight-color: transparent;
   overscroll-behavior: none;
 }
 
-/* Prevent double-tap zoom on buttons */
-button { touch-action: manipulation; }
+button { touch-action: manipulation; font-family: inherit; }
+code, pre { font-family: 'JetBrains Mono', monospace; }
+
+.mirror { transform: scaleX(-1); }
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-card);
+}
+
+::-webkit-scrollbar { width: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--slate); border-radius: 99px; opacity: 0.6; }
+
+/* Optional: slightly lifted background (moon toggle on /monitor) */
+html[data-eclipse-soft='true'] {
+  --bg: #161541;
+}

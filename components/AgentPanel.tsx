@@ -55,145 +55,110 @@ export default function AgentPanel({ isDrowsy, alertCount }: AgentPanelProps) {
   };
 
   return (
-    <div style={{
-      fontFamily: "'DM Mono', 'Courier New', monospace",
-      background: '#0d1117',
-      border: '1px solid #1e2a1e',
-      borderRadius: '10px',
-      padding: '1.2rem',
-      display: 'flex',
-      flexDirection: 'column',
-      gap: '0.85rem',
-    }}>
-      {/* Header */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <div style={{ fontSize: '0.6rem', color: '#555', letterSpacing: '0.12em' }}>AI AGENT PANEL</div>
-        <div style={{
-          fontSize: '0.55rem',
-          padding: '2px 8px',
-          borderRadius: '3px',
-          background: status === 'loading' ? '#ff9f0a20' : status === 'done' ? '#30d15820' : '#1e2a1e',
-          color: status === 'loading' ? '#ff9f0a' : status === 'done' ? '#30d158' : '#444',
-          border: `1px solid ${status === 'loading' ? '#ff9f0a40' : status === 'done' ? '#30d15840' : '#333'}`,
-          letterSpacing: '0.08em',
-        }}>
-          {status === 'idle' ? 'STANDBY' : status === 'loading' ? 'THINKING...' : status === 'done' ? 'READY' : 'ERROR'}
-        </div>
-      </div>
-
-      {/* Live Traffic Ticker */}
-      <div style={{
-        background: '#0a0f0a',
-        border: '1px solid #1e2a1e',
-        borderRadius: '6px',
-        padding: '0.7rem',
-        display: 'flex',
-        gap: '0.6rem',
-        alignItems: 'flex-start',
-      }}>
-        <span style={{ fontSize: '1rem', flexShrink: 0 }}>🗺️</span>
-        <div>
-          <div style={{ fontSize: '0.55rem', color: '#444', letterSpacing: '0.1em', marginBottom: '3px' }}>LIVE TRAFFIC</div>
-          <div style={{ fontSize: '0.72rem', color: '#aaa', lineHeight: 1.4 }}>{trafficTick}</div>
-        </div>
-      </div>
-
-      {/* Agent Responses */}
-      {status === 'loading' && (
-        <div style={{ textAlign: 'center', padding: '1.5rem 0' }}>
-          <div style={{ fontSize: '0.7rem', color: '#ff9f0a', animation: 'blink 1s infinite' }}>
-            ⚡ Agents analyzing...
+    <>
+      <style>{`
+        .ap { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px; display: flex; flex-direction: column; gap: 10px; }
+        .ap-header { display: flex; justify-content: space-between; align-items: center; }
+        .ap-title { font-size: 0.58rem; color: var(--text-faint); letter-spacing: 0.14em; font-weight: 600; }
+        .ap-status { font-size: 0.55rem; padding: 4px 8px; border-radius: var(--radius-sm); border: 1px solid; letter-spacing: 0.08em; font-weight: 600; transition: all 0.3s; }
+        .ap-status-idle    { background: var(--accent-muted); border-color: var(--border-strong); color: var(--text-faint); }
+        .ap-status-loading { background: rgba(80, 80, 129, 0.35); border-color: rgba(134, 134, 172, 0.35); color: var(--text-muted); animation: ap-pulse 1.2s infinite; }
+        .ap-status-done    { background: var(--accent-dim); border-color: var(--border-strong); color: var(--text); }
+        .ap-status-error   { background: rgba(80, 80, 129, 0.4); border-color: rgba(134, 134, 172, 0.4); color: var(--text-muted); }
+        @keyframes ap-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.6; } }
+        .ap-traffic { background: var(--surface2); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 10px; display: flex; gap: 10px; align-items: flex-start; }
+        .ap-traffic-icon { font-size: 1rem; flex-shrink: 0; }
+        .ap-traffic-label { font-size: 0.55rem; color: var(--text-faint); letter-spacing: 0.1em; margin-bottom: 3px; }
+        .ap-traffic-text { font-size: 0.72rem; color: var(--text-muted); line-height: 1.4; }
+      `}</style>
+      <div className="ap">
+        <div className="ap-header">
+          <div className="ap-title">AI AGENTS</div>
+          <div className={`ap-status ap-status-${status}`}>
+            {status === 'idle' ? 'STANDBY' : status === 'loading' ? 'THINKING...' : status === 'done' ? 'READY' : 'ERROR'}
           </div>
-          <div style={{ fontSize: '0.55rem', color: '#444', marginTop: '6px' }}>Checking traffic + nearby stops</div>
         </div>
-      )}
+        <div className="ap-traffic">
+          <span className="ap-traffic-icon">🗺️</span>
+          <div>
+            <div className="ap-traffic-label">LIVE TRAFFIC</div>
+            <div className="ap-traffic-text">{trafficTick}</div>
+          </div>
+        </div>
 
-      {status === 'done' && response && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
-          {[
-            { icon: '🚦', label: 'TRAFFIC', value: response.traffic, color: '#30d158' },
-            { icon: '🏨', label: 'REST STOP', value: response.hotel, color: '#0a84ff' },
-            { icon: '🎙️', label: 'VOICE COACH', value: response.voiceCoach, color: '#bf5af2' },
-          ].map(item => (
-            <div key={item.label} style={{
-              background: '#0a0f0a',
-              border: `1px solid ${item.color}20`,
-              borderRadius: '6px',
-              padding: '0.7rem',
-              display: 'flex',
-              gap: '0.6rem',
-              alignItems: 'flex-start',
-            }}>
-              <span style={{ fontSize: '1rem', flexShrink: 0 }}>{item.icon}</span>
+        {/* Agent Responses */}
+        {status === 'loading' && (
+          <div className="ap-loading">
+            <div className="ap-loading-text">⚡ Agents analyzing...</div>
+            <div className="ap-loading-sub">Checking traffic + nearby stops</div>
+          </div>
+        )}
+
+        {status === 'done' && response && (
+          <div className="ap-responses">
+            <div className="ap-response">
+              <span className="ap-response-icon">🚦</span>
               <div>
-                <div style={{ fontSize: '0.5rem', color: '#444', letterSpacing: '0.1em', marginBottom: '3px' }}>{item.label}</div>
-                <div style={{ fontSize: '0.72rem', color: item.color, lineHeight: 1.4 }}>{item.value}</div>
+                <div className="ap-response-label">TRAFFIC</div>
+                <div className="ap-response-value">{response.traffic}</div>
               </div>
             </div>
-          ))}
-
-          {/* Pull Over Banner */}
-          {response.pullOver && (
-            <div style={{
-              background: '#ff2d5515',
-              border: '1px solid #ff2d5560',
-              borderRadius: '6px',
-              padding: '0.8rem',
-              textAlign: 'center',
-              animation: 'pulse 1s infinite',
-            }}>
-              <div style={{ fontSize: '1.2rem', marginBottom: '4px' }}>🚨</div>
-              <div style={{ fontSize: '0.75rem', fontWeight: 700, color: '#ff2d55', letterSpacing: '0.1em' }}>PULL OVER NOW</div>
-              <div style={{ fontSize: '0.6rem', color: '#ff2d5580', marginTop: '3px' }}>{alertCount} alerts — rest required</div>
+            <div className="ap-response">
+              <span className="ap-response-icon">🏨</span>
+              <div>
+                <div className="ap-response-label">REST STOP</div>
+                <div className="ap-response-value">{response.hotel}</div>
+              </div>
             </div>
-          )}
+            <div className="ap-response">
+              <span className="ap-response-icon">🎙️</span>
+              <div>
+                <div className="ap-response-label">VOICE COACH</div>
+                <div className="ap-response-value">{response.voiceCoach}</div>
+              </div>
+            </div>
 
-          {/* Replay voice */}
-          {spoken && (
-            <button
-              onClick={() => speakAlert(response.voiceCoach)}
-              style={{
-                background: 'transparent',
-                border: '1px solid #bf5af240',
-                borderRadius: '5px',
-                color: '#bf5af2',
-                fontSize: '0.6rem',
-                padding: '0.4rem',
-                cursor: 'pointer',
-                letterSpacing: '0.08em',
-              }}
-            >
-              🔊 REPLAY VOICE ALERT
-            </button>
-          )}
-        </div>
-      )}
+            {response.pullOver && (
+              <div className="ap-pullover">
+                <div className="ap-pullover-emoji">🚨</div>
+                <div className="ap-pullover-text">PULL OVER NOW</div>
+                <div className="ap-pullover-sub">{alertCount} alerts — rest required</div>
+              </div>
+            )}
 
-      {/* Manual test button (for demo / Person A not connected yet) */}
-      <button
-        onClick={handleManualTest}
-        disabled={status === 'loading'}
-        style={{
-          marginTop: '0.2rem',
-          background: 'transparent',
-          border: `1px solid ${status === 'loading' ? '#333' : '#30d15840'}`,
-          borderRadius: '5px',
-          color: status === 'loading' ? '#444' : '#30d158',
-          fontSize: '0.6rem',
-          padding: '0.5rem',
-          cursor: status === 'loading' ? 'not-allowed' : 'pointer',
-          letterSpacing: '0.08em',
-          transition: 'all 0.2s',
-        }}
-      >
-        {status === 'loading' ? '⏳ LOADING...' : '⚡ SIMULATE DROWSY ALERT (DEMO)'}
-      </button>
+            {spoken && (
+              <button onClick={() => speakAlert(response.voiceCoach)} className="ap-btn-voice">
+                🔊 REPLAY VOICE ALERT
+              </button>
+            )}
+          </div>
+        )}
 
+        <button onClick={handleManualTest} disabled={status === 'loading'} className={`ap-btn-demo ap-btn-demo-${status === 'loading' ? 'loading' : 'ready'}`}>
+          {status === 'loading' ? '⏳ LOADING...' : '⚡ SIMULATE DROWSY ALERT (DEMO)'}
+        </button>
+      </div>
       <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&display=swap');
-        @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.6} }
-        @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.4} }
+        .ap-loading { text-align: center; padding: 12px 0; }
+        .ap-loading-text { font-size: 0.7rem; color: var(--text-muted); animation: ap-blink 1s infinite; }
+        .ap-loading-sub { font-size: 0.55rem; color: var(--text-faint); margin-top: 6px; }
+        .ap-responses { display: flex; flex-direction: column; gap: 8px; }
+        .ap-response { background: var(--surface2); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 10px; display: flex; gap: 10px; align-items: flex-start; }
+        .ap-response-icon { font-size: 1rem; flex-shrink: 0; }
+        .ap-response-label { font-size: 0.55rem; color: var(--text-faint); letter-spacing: 0.1em; margin-bottom: 3px; }
+        .ap-response-value { font-size: 0.72rem; color: var(--text-muted); line-height: 1.4; }
+        .ap-pullover { background: rgba(80, 80, 129, 0.35); border: 1px solid var(--border-strong); border-radius: var(--radius-sm); padding: 12px; text-align: center; animation: ap-pulse 1s infinite; }
+        .ap-pullover-emoji { font-size: 1.2rem; margin-bottom: 4px; }
+        .ap-pullover-text { font-size: 0.75rem; font-weight: 700; color: var(--text); letter-spacing: 0.1em; }
+        .ap-pullover-sub { font-size: 0.6rem; color: var(--text-muted); margin-top: 4px; }
+        .ap-btn-voice { width: 100%; background: transparent; border: 1px solid rgba(134, 134, 172, 0.3); border-radius: var(--radius-sm); color: var(--blue-soft); font-size: 0.6rem; padding: 8px; cursor: pointer; transition: all 0.2s; letter-spacing: 0.08em; font-weight: 600; }
+        .ap-btn-voice:hover { background: rgba(134, 134, 172, 0.06); border-color: rgba(134, 134, 172, 0.5); }
+        .ap-btn-demo { width: 100%; background: transparent; border: 1px solid; border-radius: var(--radius-sm); font-size: 0.6rem; padding: 8px; cursor: pointer; transition: all 0.2s; letter-spacing: 0.08em; font-weight: 600; margin-top: 4px; }
+        .ap-btn-demo-ready { border-color: rgba(134, 134, 172, 0.3); color: var(--blue-soft); }
+        .ap-btn-demo-ready:hover { background: rgba(134, 134, 172, 0.06); border-color: rgba(134, 134, 172, 0.5); }
+        .ap-btn-demo-loading { border-color: var(--border); color: var(--text-faint); cursor: not-allowed; opacity: 0.5; }
+        @keyframes ap-blink { 0%,100%{opacity:1} 50%{opacity:0.4} }
       `}</style>
-    </div>
+    </>
   );
 }
