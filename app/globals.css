@@ -83,3 +83,94 @@ code, pre { font-family: 'JetBrains Mono', monospace; }
 html[data-eclipse-soft='true'] {
   --bg: #161541;
 }
+
+/* ─── iOS Redesign theme (Figma: BlinkGuard iOS Redesign) ──────────────────
+   Scoped to .ios-app so it doesn't clobber legacy dark screens.            */
+.ios-app {
+  --ios-background: #f8f9fb;
+  --ios-foreground: #0f1729;
+  --ios-card: #ffffff;
+  --ios-border: #e2e8f0;
+  --ios-muted: #e8edf5;
+  --ios-muted-foreground: #64748b;
+  --ios-primary: #1a2744;
+  --ios-midnight: #0f1729;
+  --ios-midnight-light: #1a2744;
+  --ios-midnight-lighter: #2d3e5f;
+  --ios-safe: #10b981;
+  --ios-warning: #f59e0b;
+  --ios-danger: #ef4444;
+  --ios-radius: 1rem;
+
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: 32rem; /* ~max-w-lg */
+  height: 100vh;
+  height: 100dvh;
+  margin: 0 auto;
+  background: var(--ios-background);
+  color: var(--ios-foreground);
+  font-family: 'Inter', system-ui, sans-serif;
+  font-size: 16px;
+  line-height: 1.5;
+  overflow-x: hidden;
+}
+.ios-app *, .ios-app *::before, .ios-app *::after { box-sizing: border-box; }
+.ios-app h1 { font-size: 1.5rem;  font-weight: 500; line-height: 1.5; margin: 0; }
+.ios-app h2 { font-size: 1.25rem; font-weight: 500; line-height: 1.5; margin: 0; }
+.ios-app h3 { font-size: 1.125rem;font-weight: 500; line-height: 1.5; margin: 0; }
+.ios-app h4 { font-size: 1rem;    font-weight: 500; line-height: 1.5; margin: 0; }
+.ios-app p  { margin: 0; }
+.ios-app button { font-family: inherit; cursor: pointer; background: none; border: none; padding: 0; color: inherit; }
+
+html[data-ios='true'] { background: #f8f9fb; }
+html[data-ios='true'] body { background: #f8f9fb; }
+
+/* ─── Shared iOS UI primitives ─── */
+.ios-screen { flex: 1; display: flex; flex-direction: column; padding-bottom: 5rem; position: relative; }
+.ios-scroll { flex: 1; overflow-y: auto; padding-bottom: 5rem; }
+
+/* Bottom nav */
+.ios-nav {
+  position: fixed; bottom: 0; left: 0; right: 0; z-index: 50;
+  background: #ffffff;
+  border-top: 1px solid var(--ios-border);
+  padding-bottom: env(safe-area-inset-bottom, 0);
+}
+.ios-nav-inner { display: flex; align-items: center; justify-content: space-around; height: 4rem; max-width: 32rem; margin: 0 auto; }
+.ios-nav-btn { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0.25rem; flex: 1; height: 100%; color: var(--ios-muted-foreground); transition: color .2s; }
+.ios-nav-btn.is-active { color: var(--ios-midnight); }
+.ios-nav-btn svg { width: 20px; height: 20px; stroke-width: 2; }
+.ios-nav-btn.is-active svg { stroke-width: 2.5; }
+.ios-nav-btn span { font-size: 10px; letter-spacing: 0.01em; }
+
+/* Cards */
+.ios-card {
+  background: #fff;
+  border: 1px solid var(--ios-border);
+  border-radius: var(--ios-radius);
+  box-shadow: 0 1px 2px rgba(15,23,41,0.04);
+}
+.ios-card-lg { border-radius: 1rem; padding: 1rem; }
+
+/* Status chip */
+.ios-chip { display: inline-flex; align-items: center; gap: 0.5rem; padding: 0.5rem 1rem; border-radius: 9999px; font-size: 0.875rem; font-weight: 500; }
+.ios-chip-safe    { background: var(--ios-safe);    color: #fff; }
+.ios-chip-warning { background: var(--ios-warning); color: #fff; }
+.ios-chip-danger  { background: var(--ios-danger);  color: #fff; }
+
+/* Muted text */
+.ios-muted-text { color: var(--ios-muted-foreground); font-size: 0.75rem; }
+
+/* Gradient headers */
+.ios-dark-header {
+  background: var(--ios-midnight);
+  color: #fff;
+  padding: 2rem 1rem 1rem;
+}
+.ios-dark-gradient {
+  background: linear-gradient(180deg, var(--ios-midnight) 0%, var(--ios-midnight-light) 100%);
+  color: #fff;
+}

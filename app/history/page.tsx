@@ -1,16 +1,33 @@
 'use client';
-
-const sessions = [
-  { id: 1, date: 'Today',      duration: '45 min',    alerts: 0, status: 'awake' },
-  { id: 2, date: 'Yesterday',  duration: '1h 22 min', alerts: 2, status: 'warning' },
-  { id: 3, date: '2 days ago', duration: '2h 15 min', alerts: 5, status: 'danger' },
-];
+import { useEffect, useState } from 'react';
+import InsightsSummary from '@/components/InsightsSummary';
+import { formatSessionDate, formatDuration, type SessionData } from '@/lib/sessions';
 
 const statusLabel: Record<string, string> = {
-  awake: 'Awake', warning: 'Alert', danger: 'Drowsy',
+  awake: 'Awake',
+  warning: 'Alert',
+  danger: 'Drowsy',
 };
 
 export default function History() {
+  const [sessions, setSessions] = useState<SessionData[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    
+    const stored = localStorage.getItem('blinkguard_sessions');
+    const data = stored ? JSON.parse(stored) : [];
+    setSessions(data.sort((a: SessionData, b: SessionData) => b.startTime - a.startTime));
+    setLoading(false);
+  }, []);
+
+  const getStatus = (alerts: number): string => {
+    if (alerts === 0) return 'awake';
+    if (alerts < 3) return 'warning';
+    return 'danger';
+  };
+
   return (
     <>
       <style>{`
@@ -40,24 +57,38 @@ export default function History() {
       <div className="hist">
         <div className="hist-header">
           <div className="hist-title">Session History</div>
-          <div className="hist-sub">Your past monitoring sessions and drowsiness patterns</div>
+          <div className="hist-sub">
+            {sessions.length > 0
+              ? `${sessions.length} session${sessions.length !== 1 ? 's' : ''} logged`
+              : 'Your past monitoring sessions and drowsiness patterns'}
+          </div>
         </div>
 
-        {sessions.length === 0 ? (
+        {sessions.length > 0 && <InsightsSummary sessionCount={sessions.length} />}
+
+        {!loading && sessions.length === 0 ? (
           <div className="hist-empty">No sessions yet. Start monitoring to begin tracking.</div>
+        ) : loading ? (
+          <div className="hist-empty">Loading sessions...</div>
         ) : (
           <div className="hist-list">
-            {sessions.map(s => (
-              <div key={s.id} className="hist-row">
-                <div>
-                  <div className="hist-date">{s.date}</div>
-                  <div className="hist-meta">{s.duration} · {s.alerts} alert{s.alerts !== 1 ? 's' : ''}</div>
+            {sessions.map((s) => {
+              const status = getStatus(s.alerts);
+              return (
+                <div key={s.id} className="hist-row">
+                  <div>
+                    <div className="hist-date">{formatSessionDate(s.startTime)}</div>
+                    <div className="hist-meta">
+                      {formatDuration(s.duration)} · {s.alerts} alert
+                      {s.alerts !== 1 ? 's' : ''}
+                    </div>
+                  </div>
+                  <div className={`hist-badge hist-badge-${status}`}>
+                    {statusLabel[status]}
+                  </div>
                 </div>
-                <div className={`hist-badge hist-badge-${s.status}`}>
-                  {statusLabel[s.status]}
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>

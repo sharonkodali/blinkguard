@@ -203,141 +203,263 @@ export default function CalibrationWizard({
     onCalibrationComplete();
   }, [onCalibrationComplete]);
 
+  // Progress: start -> eyes-open(1) -> eyes-closed(2) -> normal-blink(3) -> yawning(4) -> complete
+  const stepNumber =
+    step === 'eyes-open' ? 1
+    : step === 'eyes-closed' ? 2
+    : step === 'normal-blink' ? 3
+    : step === 'yawning' ? 4
+    : step === 'complete' ? 5
+    : 0;
+  const totalSteps = 4;
+
+  // Tip copy for each capture step. Short, direct, action-first.
+  const stepContent: Record<
+    Exclude<CalibrationStep, 'start' | 'complete'>,
+    { title: string; sub: string; tip: string }
+  > = {
+    'eyes-open': {
+      title: 'Look at the camera',
+      sub: 'Keep both eyes comfortably wide open and hold still.',
+      tip: 'This teaches BlinkGuard what your alert, open eyes look like.',
+    },
+    'eyes-closed': {
+      title: 'Close your eyes fully',
+      sub: 'Shut your eyes gently and keep them closed until the timer ends.',
+      tip: 'This sets the boundary for detecting eyes-closed drowsiness.',
+    },
+    'normal-blink': {
+      title: 'Blink naturally',
+      sub: 'Do 3–4 normal blinks at your everyday pace — don\u2019t force them.',
+      tip: 'This tells the system what a healthy blink rhythm looks like.',
+    },
+    yawning: {
+      title: 'Open wide like a yawn',
+      sub: 'Stretch your mouth open 2–3 times as if mid-yawn.',
+      tip: 'This calibrates the yawn detector so it doesn\u2019t trigger on talking.',
+    },
+  };
+
   return (
     <>
       <style>{`
-        .cw { width: 100vw; height: 100vh; background: var(--bg); color: var(--text); display: flex; flex-direction: column; align-items: center; justify-content: flex-start; padding: 1rem; gap: 1rem; overflow: hidden; font-family: inherit; }
-        .cw-title { font-size: 1.5rem; font-weight: 900; color: var(--red); margin-top: 0.5rem; }
-        .cw-video-container { position: relative; width: 384px; height: 288px; border-radius: var(--radius); overflow: hidden; border: 2px solid var(--blue-soft); background: var(--surface); }
-        .cw-video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); }
-        .cw-canvas { position: absolute; inset: 0; width: 100%; height: 100%; transform: scaleX(-1); }
-        .cw-metrics { display: flex; gap: 32px; text-align: center; }
-        .cw-metric { background: var(--surface2); border-radius: var(--radius-sm); padding: 12px; border: 1px solid var(--border); }
-        .cw-metric-label { font-size: 0.75rem; color: var(--text-faint); letter-spacing: 0.1em; margin-bottom: 4px; }
-        .cw-metric-value { font-size: 2rem; font-family: 'JetBrains Mono', monospace; font-weight: 700; color: var(--blue-soft); }
-        .cw-step { display: flex; flex-direction: column; align-items: center; gap: 1.5rem; }
-        .cw-emoji { font-size: 3rem; animation: cw-pulse 1s infinite; }
-        .cw-step-title { font-size: 1.25rem; font-weight: 700; text-align: center; }
-        .cw-timer { font-size: 3.5rem; font-weight: 700; color: var(--blue-soft); }
-        .cw-step-subtitle { font-size: 0.875rem; color: var(--text-faint); text-align: center; max-width: 20rem; }
-        .cw-button-group { display: flex; flex-direction: column; gap: 1rem; align-items: center; }
-        .cw-button { padding: 0.75rem 2rem; border-radius: var(--radius-sm); border: none; font-weight: 700; font-size: 0.95rem; cursor: pointer; transition: all 0.2s; }
-        .cw-button-primary { background: var(--red); color: var(--text); }
-        .cw-button-primary:hover { background: #ff6b6b; }
-        .cw-button-secondary { background: var(--surface2); color: var(--text-muted); border: 1px solid var(--border); }
-        .cw-button-secondary:hover { background: var(--surface3); color: var(--text); }
-        .cw-complete { text-align: center; }
-        .cw-complete-emoji { font-size: 4rem; }
-        .cw-complete-title { font-size: 1.5rem; font-weight: 700; margin-top: 1rem; }
-        .cw-complete-subtitle { color: var(--text-muted); max-width: 20rem; margin-top: 0.5rem; }
-        @keyframes cw-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.6; } }
+        .cal-wrap {
+          flex: 1; display: flex; flex-direction: column; min-height: 0;
+          background: var(--ios-background);
+          padding-bottom: calc(1rem + env(safe-area-inset-bottom));
+        }
+        .cal-header {
+          padding: calc(1.25rem + env(safe-area-inset-top)) 1rem 0.875rem;
+          background: var(--ios-midnight); color: #fff;
+          border-bottom-left-radius: 1.25rem; border-bottom-right-radius: 1.25rem;
+        }
+        .cal-header h1 { color: #fff; font-size: 1.15rem; font-weight: 600; margin: 0; }
+        .cal-header p  { color: rgba(255,255,255,0.7); font-size: 0.78rem; margin-top: 0.2rem; }
+        .cal-progress { display: flex; gap: 0.3rem; margin-top: 0.8rem; }
+        .cal-progress-seg {
+          flex: 1; height: 0.3rem; border-radius: 9999px;
+          background: rgba(255,255,255,0.18);
+        }
+        .cal-progress-seg.filled { background: var(--ios-safe); }
+        .cal-progress-seg.active { background: #fff; }
+
+        .cal-body { flex: 1; overflow-y: auto; padding: 1rem; display: flex; flex-direction: column; gap: 1rem; }
+
+        .cal-video-card {
+          position: relative; width: 100%; aspect-ratio: 4 / 3;
+          background: #0f1729; border-radius: 1rem; overflow: hidden;
+          border: 1px solid var(--ios-border);
+          box-shadow: 0 10px 22px -10px rgba(15,23,41,0.35);
+        }
+        .cal-video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); }
+        .cal-canvas { position: absolute; inset: 0; width: 100%; height: 100%; transform: scaleX(-1); pointer-events: none; }
+        .cal-timer-pill {
+          position: absolute; top: 0.75rem; right: 0.75rem;
+          background: rgba(15,23,41,0.8); color: #fff;
+          padding: 0.4rem 0.75rem; border-radius: 9999px;
+          font-size: 0.72rem; font-weight: 600;
+          border: 1px solid rgba(255,255,255,0.2);
+          backdrop-filter: blur(8px);
+        }
+
+        .cal-metrics {
+          display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem;
+        }
+        .cal-metric {
+          background: #fff; border: 1px solid var(--ios-border); border-radius: 0.75rem;
+          padding: 0.6rem 0.75rem;
+          box-shadow: 0 1px 2px rgba(15,23,41,0.04);
+        }
+        .cal-metric-l { font-size: 0.58rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--ios-muted-foreground); font-weight: 600; }
+        .cal-metric-v { font-size: 1.15rem; font-weight: 700; color: var(--ios-midnight); font-family: 'JetBrains Mono', monospace; margin-top: 0.15rem; }
+
+        .cal-card {
+          background: #fff; border: 1px solid var(--ios-border); border-radius: 1rem;
+          padding: 1.1rem 1rem;
+          box-shadow: 0 1px 2px rgba(15,23,41,0.04);
+        }
+        .cal-card h2 { color: var(--ios-midnight); font-size: 1.05rem; font-weight: 600; margin: 0; }
+        .cal-card p  { color: var(--ios-muted-foreground); font-size: 0.82rem; margin-top: 0.35rem; line-height: 1.5; }
+        .cal-tip {
+          margin-top: 0.75rem; padding: 0.55rem 0.75rem;
+          background: rgba(16,185,129,0.08); color: #047857;
+          border: 1px solid rgba(16,185,129,0.2); border-radius: 0.625rem;
+          font-size: 0.72rem; line-height: 1.45;
+        }
+
+        .cal-intro-list {
+          margin: 0.75rem 0 0; padding: 0;
+          display: flex; flex-direction: column; gap: 0.45rem;
+          list-style: none;
+        }
+        .cal-intro-list li {
+          display: flex; gap: 0.55rem; align-items: flex-start;
+          font-size: 0.78rem; color: #334155; line-height: 1.45;
+        }
+        .cal-intro-num {
+          flex-shrink: 0;
+          width: 1.25rem; height: 1.25rem; border-radius: 9999px;
+          background: var(--ios-midnight); color: #fff;
+          display: inline-flex; align-items: center; justify-content: center;
+          font-size: 0.62rem; font-weight: 700;
+        }
+
+        .cal-actions { display: flex; gap: 0.5rem; }
+        .cal-btn {
+          flex: 1; padding: 0.85rem 1rem; border-radius: 9999px;
+          border: none; font-family: inherit; font-weight: 600; font-size: 0.85rem;
+          cursor: pointer;
+        }
+        .cal-btn-primary {
+          background: var(--ios-midnight); color: #fff;
+          box-shadow: 0 8px 20px -8px rgba(15,23,41,0.4);
+        }
+        .cal-btn-ghost {
+          background: #fff; color: var(--ios-midnight-lighter);
+          border: 1px solid var(--ios-border);
+        }
+
+        .cal-timer-big {
+          font-size: 2.5rem; font-weight: 700; color: var(--ios-midnight);
+          text-align: center; font-variant-numeric: tabular-nums;
+          margin: 0.4rem 0 0;
+        }
+        .cal-timer-label { text-align: center; font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--ios-muted-foreground); }
       `}</style>
-      <div className="cw">
-        <h1 className="cw-title">BlinkGuard Calibration</h1>
 
-        {/* Camera Feed Container */}
-        <div className="cw-video-container">
-          <video
-            ref={videoRef}
-            autoPlay
-            muted
-            playsInline
-            className="cw-video"
-          />
-          <canvas
-            ref={canvasRef}
-            className="cw-canvas"
-          />
-        </div>
-
-        {/* Real-time Metrics Display */}
-        <div className="cw-metrics">
-          <div className="cw-metric">
-            <p className="cw-metric-label">EAR (Eye Aspect Ratio)</p>
-            <p className="cw-metric-value">{currentEAR.toFixed(3)}</p>
-          </div>
-          <div className="cw-metric">
-            <p className="cw-metric-label">MAR (Mouth Aspect Ratio)</p>
-            <p className="cw-metric-value">{currentMAR.toFixed(3)}</p>
-          </div>
-        </div>
-
-        {step === 'start' && (
-          <div className="cw-step">
-            <div className="cw-emoji">👁</div>
-            <p className="cw-step-title">Eye Calibration Setup</p>
-            <p className="cw-step-subtitle">
-              We&apos;ll guide you through simple eye movements to calibrate the system for your unique eyes.
+      <div className="ios-app">
+        <div className="cal-wrap">
+          <div className="cal-header">
+            <h1>Calibration</h1>
+            <p>
+              {step === 'start'
+                ? 'Personalize BlinkGuard to your eyes in under 20 seconds.'
+                : step === 'complete'
+                  ? 'All done — thresholds saved to this device.'
+                  : `Step ${stepNumber} of ${totalSteps}`}
             </p>
-            <div className="cw-button-group">
-              <button onClick={startStep} className="cw-button cw-button-primary">
-                Start Calibration
-              </button>
-              <button onClick={skipCalibration} className="cw-button cw-button-secondary">
-                Skip for now
-              </button>
+            {stepNumber > 0 && stepNumber <= totalSteps && (
+              <div className="cal-progress">
+                {[1, 2, 3, 4].map((n) => (
+                  <div
+                    key={n}
+                    className={`cal-progress-seg ${
+                      n < stepNumber ? 'filled' : n === stepNumber ? 'active' : ''
+                    }`}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="cal-body">
+            {/* Camera preview — always rendered so MediaPipe can attach */}
+            <div className="cal-video-card">
+              <video ref={videoRef} autoPlay muted playsInline className="cal-video" />
+              <canvas ref={canvasRef} className="cal-canvas" />
+              {isCollecting && (
+                <div className="cal-timer-pill">{timeRemaining}s</div>
+              )}
             </div>
-          </div>
-        )}
 
-        {step === 'eyes-open' && (
-          <div className="cw-step">
-            <div className="cw-emoji">📖</div>
-            <p className="cw-step-title">Keep eyes wide open</p>
-            <div className="cw-timer">{timeRemaining}</div>
-            <p className="cw-step-subtitle">
-              Look at the camera. Keep eyes as open as possible. (EAR should be high)
-            </p>
-          </div>
-        )}
+            {/* Live metrics — only useful once collecting */}
+            {(isCollecting || step === 'complete') && (
+              <div className="cal-metrics">
+                <div className="cal-metric">
+                  <div className="cal-metric-l">EAR · Eye ratio</div>
+                  <div className="cal-metric-v">{currentEAR.toFixed(3)}</div>
+                </div>
+                <div className="cal-metric">
+                  <div className="cal-metric-l">MAR · Mouth ratio</div>
+                  <div className="cal-metric-v">{currentMAR.toFixed(3)}</div>
+                </div>
+              </div>
+            )}
 
-        {step === 'eyes-closed' && (
-          <div className="cw-step">
-            <div className="cw-emoji">😴</div>
-            <p className="cw-step-title">Close your eyes fully</p>
-            <div className="cw-timer">{timeRemaining}</div>
-            <p className="cw-step-subtitle">
-              Completely close your eyes and keep them shut. (EAR should be low)
-            </p>
-          </div>
-        )}
+            {/* Step-specific copy */}
+            {step === 'start' && (
+              <div className="cal-card">
+                <h2>Before you start</h2>
+                <p>
+                  BlinkGuard learns your personal baseline so it can tell your
+                  normal blinks apart from actual fatigue. You&apos;ll do 4 quick
+                  actions on camera — about 14 seconds total.
+                </p>
+                <ol className="cal-intro-list">
+                  <li><span className="cal-intro-num">1</span><span><strong>Keep eyes open</strong> for 3 seconds</span></li>
+                  <li><span className="cal-intro-num">2</span><span><strong>Close eyes fully</strong> for 3 seconds</span></li>
+                  <li><span className="cal-intro-num">3</span><span><strong>Blink naturally</strong> 3–4 times (4 seconds)</span></li>
+                  <li><span className="cal-intro-num">4</span><span><strong>Yawn wide</strong> 2–3 times (4 seconds)</span></li>
+                </ol>
+                <div className="cal-tip">
+                  Sit where you normally drive, remove sunglasses, and make sure your face is well lit and centered in the frame.
+                </div>
+              </div>
+            )}
 
-        {step === 'normal-blink' && (
-          <div className="cw-step">
-            <div className="cw-emoji">✨</div>
-            <p className="cw-step-title">Blink naturally</p>
-            <div className="cw-timer">{timeRemaining}</div>
-            <p className="cw-step-subtitle">
-              Perform 3-4 natural blinks at your normal pace.
-            </p>
-          </div>
-        )}
+            {step !== 'start' && step !== 'complete' && (
+              <div className="cal-card">
+                <h2>{stepContent[step].title}</h2>
+                <p>{stepContent[step].sub}</p>
+                <p className="cal-timer-big">{timeRemaining}</p>
+                <p className="cal-timer-label">seconds remaining</p>
+                <div className="cal-tip">{stepContent[step].tip}</div>
+              </div>
+            )}
 
-        {step === 'yawning' && (
-          <div className="cw-step">
-            <div className="cw-emoji">🥱</div>
-            <p className="cw-step-title">Perform a few yawns</p>
-            <div className="cw-timer">{timeRemaining}</div>
-            <p className="cw-step-subtitle">
-              Open your mouth wide like you&apos;re yawning. 2-3 yawns is enough.
-            </p>
-          </div>
-        )}
+            {step === 'complete' && (
+              <div className="cal-card">
+                <h2>Calibration complete</h2>
+                <p>
+                  Your personalized EAR and MAR thresholds are saved on this
+                  device. BlinkGuard will now use your baseline for every drive.
+                </p>
+                <div className="cal-tip">
+                  Re-calibrate anytime if your lighting, seating, or eyewear changes significantly.
+                </div>
+              </div>
+            )}
 
-        {step === 'complete' && (
-          <div className="cw-step cw-complete">
-            <div className="cw-complete-emoji">✅</div>
-            <p className="cw-complete-title">Calibration Complete!</p>
-            <p className="cw-complete-subtitle">
-              Your personalized thresholds have been set. BlinkGuard is now optimized for your eyes.
-            </p>
-            <div className="cw-button-group" style={{ marginTop: '1rem' }}>
-              <button onClick={() => onCalibrationComplete()} className="cw-button cw-button-primary">
-                Start Monitoring
-              </button>
-            </div>
+            {/* Actions */}
+            {step === 'start' && (
+              <div className="cal-actions">
+                <button type="button" className="cal-btn cal-btn-primary" onClick={startStep}>
+                  Begin calibration
+                </button>
+                <button type="button" className="cal-btn cal-btn-ghost" onClick={skipCalibration}>
+                  Skip
+                </button>
+              </div>
+            )}
+            {step === 'complete' && (
+              <div className="cal-actions">
+                <button type="button" className="cal-btn cal-btn-primary" onClick={onCalibrationComplete}>
+                  Start monitoring
+                </button>
+              </div>
+            )}
           </div>
-        )}
+        </div>
       </div>
     </>
   );

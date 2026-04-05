@@ -1,376 +1,401 @@
 'use client';
-import { useRef, useEffect, useState, useCallback } from 'react';
+/**
+ * Home — the main driver surface.
+ *
+ * Unlike a typical landing page, this screen runs BOTH the real Google Maps
+ * navigation AND the live drowsiness detector at the same time, because the
+ * whole point of BlinkGuard is that fatigue monitoring should never be an
+ * afterthought you toggle into. The map fills the main area; a small PiP
+ * camera preview (powered by `useDrowsinessDetector`) sits in the corner and
+ * drives a live status chip + danger banner up top.
+ */
+import { useEffect, useState, useSyncExternalStore } from 'react';
 import Link from 'next/link';
-import StatusPanel from '@/components/StatusPanel';
-import AlertBanner from '@/components/AlertBanner';
-import CalibrationWizard from '@/components/CalibrationWizard';
+import dynamic from 'next/dynamic';
+import BottomNav from '@/components/BottomNav';
 import {
-  computeEAR, computeMAR,
-  isEyeClosed, isYawning,
-  getDrowsinessState,
-  hasCalibration,
   loadCalibrationData,
-  FRAMES_DANGER,
+  subscribeCalibration,
+  getCalibrationSnapshot,
+  getCalibrationServerSnapshot,
 } from '@/lib/drowsiness';
-import type { DrowsinessState } from '@/lib/drowsiness';
-import { formatCameraError, getUserMediaFrontCamera } from '@/lib/camera';
+import { useDrowsinessDetector } from '@/lib/useDrowsinessDetector';
 
-// ─── Eye landmark indices to highlight ───────────────────────────────────────
-const LEFT_EYE_IDX  = [33,7,163,144,145,153,154,155,133,246,161,160,159,158,157,173];
-const RIGHT_EYE_IDX = [362,382,381,380,374,373,390,249,263,466,388,387,386,385,384,398];
+// Dynamic import — Google Maps must run client-side only.
+const GoogleNavigationMap = dynamic(
+  () => import('@/components/GoogleNavigationMap'),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="nav-map-loading">
+        <span className="nav-map-loading-dot" />
+        Loading map…
+      </div>
+    ),
+  },
+);
+
+// ── Icons ─────────────────────────────────────────────────────────────────
+const EyeIcon = (p: { className?: string }) => (
+  <svg className={p.className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0" />
+    <circle cx="12" cy="12" r="3" />
+  </svg>
+);
+const EyeOffIcon = (p: { className?: string }) => (
+  <svg className={p.className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M10.733 5.076a10.744 10.744 0 0 1 11.205 6.575 1 1 0 0 1 0 .696 10.747 10.747 0 0 1-1.444 2.49" />
+    <path d="M14.084 14.158a3 3 0 0 1-4.242-4.242" />
+    <path d="M17.479 17.499a10.75 10.75 0 0 1-15.417-5.151 1 1 0 0 1 0-.696 10.75 10.75 0 0 1 4.446-5.143" />
+    <path d="m2 2 20 20" />
+  </svg>
+);
+const AlertIcon = (p: { className?: string }) => (
+  <svg className={p.className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3" />
+    <path d="M12 9v4" />
+    <path d="M12 17h.01" />
+  </svg>
+);
+const CalibIcon = (p: { className?: string }) => (
+  <svg className={p.className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <circle cx="12" cy="12" r="10" /><path d="M12 6v6l4 2" />
+  </svg>
+);
+const CameraIcon = (p: { className?: string }) => (
+  <svg className={p.className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z" />
+    <circle cx="12" cy="13" r="3" />
+  </svg>
+);
+const StopIcon = (p: { className?: string }) => (
+  <svg className={p.className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <rect x="6" y="6" width="12" height="12" rx="2" />
+  </svg>
+);
 
 export default function Home() {
-  const videoRef  = useRef<HTMLVideoElement>(null);
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-
-  // ─── State ─────────────────────────────────────────────────────────────────
-  const [needsCalibration, setNeedsCalibration] = useState(true);
-  const [isCalibrating, setIsCalibrating] = useState(false);
-  const [isStarted,      setIsStarted]      = useState(false);
-  const [ear,            setEar]            = useState(0);
-  const [closedFrames,   setClosedFrames]   = useState(0);
-  const [drowsinessState, setDrowsinessState] = useState<DrowsinessState>('awake');
-  const [faceDetected,   setFaceDetected]   = useState(false);
-  const [alertCount,     setAlertCount]     = useState(0);
-  const [sessionTime,    setSessionTime]    = useState(0);
-
-  // Refs so callbacks always read fresh values
-  const closedRef      = useRef(0);
-  const alertCooling   = useRef(false);
-  const lastAlertTime  = useRef(0);
-
-  // ─── Check calibration on mount ────────────────────────────────────────────
+  // Calibration status is subscribed via useSyncExternalStore so SSR returns a
+  // stable `false` (avoids hydration mismatches) and the client re-reads after
+  // mount. This also updates live when the user returns from /calibrate.
+  const calibrated = useSyncExternalStore(
+    subscribeCalibration,
+    getCalibrationSnapshot,
+    getCalibrationServerSnapshot,
+  );
   useEffect(() => {
-    const hasCalib = hasCalibration();
-    setNeedsCalibration(!hasCalib);
-    if (hasCalib) {
-      loadCalibrationData();
-    }
-  }, []);
+    if (calibrated) loadCalibrationData();
+  }, [calibrated]);
 
-  // ─── Session timer ─────────────────────────────────────────────────────────
-  useEffect(() => {
-    if (!isStarted) return;
-    const id = setInterval(() => setSessionTime(t => t + 1), 1000);
-    return () => clearInterval(id);
-  }, [isStarted]);
+  // ── Live drowsiness detector ──────────────────────────────────────────
+  // The hook owns the camera + MediaPipe pipeline and mirrors its state to
+  // the cross-page liveSession store so Metrics can read it too. We disable
+  // the mesh drawing here because the Home-page preview is a tiny PiP — the
+  // full mesh overlay lives on the /monitor page.
+  const detector = useDrowsinessDetector({
+    drawMesh: false,
+    enableAlerts: true,
+    persistOnStop: true,
+  });
+  const {
+    videoRef,
+    canvasRef,
+    isStarted: monitoring,
+    start: startMonitor,
+    stop: stopMonitor,
+    drowsinessState,
+    faceDetected,
+    blinkRate,
+    alertCount,
+    error: detectorError,
+  } = detector;
 
-  // ─── Alert trigger ─────────────────────────────────────────────────────────
-  const triggerAlert = useCallback(() => {
-    const now = Date.now();
-    // Debounce: max one alert every 5 seconds
-    if (alertCooling.current || now - lastAlertTime.current < 5000) return;
-    alertCooling.current = true;
-    lastAlertTime.current = now;
-    setAlertCount(c => c + 1);
+  // Drive status pill — driven by live detector state while monitoring,
+  // otherwise shows a neutral idle pill so the header stays stable.
+  const statusClass = !monitoring
+    ? 'idle'
+    : drowsinessState === 'awake'
+      ? 'safe'
+      : drowsinessState === 'warning'
+        ? 'warning'
+        : 'danger';
+  const statusText = !monitoring
+    ? 'Monitor off'
+    : !faceDetected
+      ? 'Finding face…'
+      : drowsinessState === 'awake'
+        ? 'Alert'
+        : drowsinessState === 'warning'
+          ? 'Drowsy'
+          : 'Danger';
 
-    // Vibrate pattern: buzz-pause-buzz
-    if (navigator.vibrate) navigator.vibrate([600, 150, 600, 150, 600]);
+  // Danger banner: only shown while monitoring AND in danger state. The
+  // detector already fires voice/vibration alerts; this is a visual echo.
+  const showDanger = monitoring && drowsinessState === 'danger';
 
-    // Text-to-speech
-    if ('speechSynthesis' in window) {
-      window.speechSynthesis.cancel();
-      const u = new SpeechSynthesisUtterance(
-        'Warning! Eyes closing. Pull over safely now.'
-      );
-      u.rate  = 1.1;
-      u.pitch = 1.2;
-      window.speechSynthesis.speak(u);
-    }
-
-    setTimeout(() => { alertCooling.current = false; }, 3500);
-  }, []);
-
-  // ─── MediaPipe initialization ────────────────────────────────────────────
-  const runMediaPipe = useCallback(async () => {
-    try {
-      // Dynamic imports → no SSR errors
-      const { FaceMesh, FACEMESH_TESSELATION } = await import('@mediapipe/face_mesh');
-      const { Camera }          = await import('@mediapipe/camera_utils');
-      const { drawConnectors }  = await import('@mediapipe/drawing_utils');
-
-      const faceMesh = new FaceMesh({
-        locateFile: (file: string) =>
-          `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh@0.4/${file}`,
-      });
-
-      faceMesh.setOptions({
-        maxNumFaces: 1,
-        refineLandmarks: true,
-        minDetectionConfidence: 0.5,
-        minTrackingConfidence: 0.5,
-      });
-
-      // ── Results callback (runs every frame) ──────────────────────────────────
-      faceMesh.onResults((results: { multiFaceLandmarks?: Array<Array<{ x: number; y: number; z?: number }>> }) => {
-        const video  = videoRef.current;
-        const canvas = canvasRef.current;
-        if (!video || !canvas) return;
-
-        const ctx = canvas.getContext('2d');
-        if (!ctx) return;
-
-        canvas.width  = video.videoWidth  || 640;
-        canvas.height = video.videoHeight || 480;
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-        if (!results.multiFaceLandmarks?.length) {
-          // No face in frame
-          setFaceDetected(false);
-          closedRef.current = 0;
-          setClosedFrames(0);
-          setDrowsinessState('awake');
-          return;
-        }
-
-        setFaceDetected(true);
-        const lm = results.multiFaceLandmarks[0];
-
-        // ── Compute metrics ────────────────────────────────────────────────────
-        try {
-          const currentEAR = computeEAR(lm);
-          const currentMAR = computeMAR(lm);
-          setEar(parseFloat(currentEAR.toFixed(3)));
-
-          // ── Update closed-frames counter ───────────────────────────────────────
-          if (isEyeClosed(currentEAR)) {
-            closedRef.current = Math.min(closedRef.current + 1, FRAMES_DANGER + 5);
-          } else {
-            closedRef.current = Math.max(0, closedRef.current - 2);
-          }
-          setClosedFrames(closedRef.current);
-
-          // ── Compute state & fire alerts ───────────────────────────────────────
-          const state = getDrowsinessState(closedRef.current, isYawning(currentMAR));
-          setDrowsinessState(state);
-          if (state === 'danger') triggerAlert();
-
-          // ── Draw mesh lightly ──────────────────────────────────────────────────
-          drawConnectors(ctx, lm, FACEMESH_TESSELATION, {
-            color: 'rgba(0,255,128,0.08)',
-            lineWidth: 0.5,
-          });
-
-          // ── Highlight eyes (green = open, red = closed) ────────────────────────
-          const eyeColor = isEyeClosed(currentEAR)
-            ? 'rgba(255, 60, 60, 0.9)'
-            : 'rgba(60, 255, 120, 0.9)';
-
-          ctx.fillStyle = eyeColor;
-          for (const idx of [...LEFT_EYE_IDX, ...RIGHT_EYE_IDX]) {
-            if (!lm[idx]) continue;
-            ctx.beginPath();
-            ctx.arc(lm[idx].x * canvas.width, lm[idx].y * canvas.height, 2.5, 0, 2 * Math.PI);
-            ctx.fill();
-          }
-
-          // ── Yawn: highlight mouth ─────────────────────────────────────────────
-          if (isYawning(currentMAR)) {
-            ctx.strokeStyle = 'rgba(255, 220, 0, 0.7)';
-            ctx.lineWidth   = 2;
-            ctx.beginPath();
-            if (lm[13]) {
-              ctx.arc(
-                lm[13].x * canvas.width,
-                lm[13].y * canvas.height,
-                14, 0, 2 * Math.PI
-              );
-            }
-            ctx.stroke();
-          }
-        } catch (error) {
-          console.error('Error processing face landmarks:', error);
-          setFaceDetected(false);
-        }
-      });
-
-      // ── Start camera loop ─────────────────────────────────────────────────────
-      if (videoRef.current) {
-        const cam = new Camera(videoRef.current, {
-          onFrame: async () => {
-            if (videoRef.current) await faceMesh.send({ image: videoRef.current });
-          },
-          width: 640, height: 480,
-        });
-        cam.start();
-      }
-    } catch (error) {
-      console.error('Error initializing MediaPipe:', error);
-      alert('Failed to initialize face detection. Please refresh the page.');
-    }
-  }, [triggerAlert]);
-
-  // ─── Start camera ──────────────────────────────────────────────────────────
-  const startCamera = useCallback(async () => {
-    try {
-      const stream = await getUserMediaFrontCamera();
-      if (!videoRef.current) return;
-      const v = videoRef.current;
-      v.setAttribute('playsinline', '');
-      v.setAttribute('webkit-playsinline', '');
-      v.playsInline = true;
-      v.muted = true;
-      v.srcObject = stream;
-      v.onloadedmetadata = async () => {
-        if (!videoRef.current) return;
-        try {
-          await videoRef.current.play();
-          setIsStarted(true);
-          setTimeout(() => runMediaPipe(), 100);
-        } catch (playErr) {
-          console.error('Play error:', playErr);
-          alert('Could not play video. On iPhone, tap Start again after allowing camera.');
-        }
-      };
-    } catch (err) {
-      console.error('Camera access error:', err);
-      alert(formatCameraError(err));
-    }
-  }, [runMediaPipe]);
-
-  // Show calibration wizard if needed
-  if (needsCalibration && !isCalibrating) {
-    return (
-      <CalibrationWizard
-        videoRef={videoRef}
-        canvasRef={canvasRef}
-        onCalibrationComplete={() => {
-          setNeedsCalibration(false);
-          setIsCalibrating(false);
-        }}
-      />
-    );
-  }
+  // Mini video tile: draggable? No — keep simple. Expandable to /monitor.
+  const [showTile, setShowTile] = useState(true);
 
   return (
     <>
       <style>{`
-        .page-main {
-          width: 100%;
-          max-width: 100vw;
-          min-height: 100dvh;
-          box-sizing: border-box;
-          padding: calc(0.5rem + env(safe-area-inset-top)) 1rem calc(0.5rem + env(safe-area-inset-bottom));
-          background: var(--bg); color: var(--text); display: flex; flex-direction: column; align-items: center;
-          overflow: hidden;
+        .nav-screen {
+          flex: 1; display: flex; flex-direction: column;
+          min-height: 0; background: var(--ios-background);
+          padding-bottom: calc(4rem + env(safe-area-inset-bottom));
         }
-        .page-header { width: 100%; max-width: 520px; display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; flex-wrap: wrap; }
-        .page-dash-link {
-          font-size: 0.75rem; font-weight: 600; padding: 0.35rem 0.75rem; border-radius: var(--radius-sm);
-          border: 1px solid var(--border-strong); background: var(--surface2); color: var(--blue-soft);
-          text-decoration: none; white-space: nowrap; transition: border-color 0.2s, color 0.2s;
+
+        /* Compact top header — calibration chip + live status pill */
+        .nav-header {
+          display: flex; align-items: center; gap: 0.5rem;
+          padding: calc(0.75rem + env(safe-area-inset-top)) 0.875rem 0.625rem;
+          background: var(--ios-background);
         }
-        .page-dash-link:hover { border-color: var(--blue-soft); color: var(--text); }
-        .page-title { font-size: 1.125rem; font-weight: 900; color: var(--red); }
-        .page-header-status { display: flex; align-items: center; gap: 0.75rem; }
-        .page-status-text { font-size: 0.75rem; color: var(--text-faint); }
-        .page-recal-btn { font-size: 0.75rem; padding: 0.25rem 0.5rem; border-radius: var(--radius-sm); background: var(--surface2); color: var(--text-muted); border: 1px solid var(--border); cursor: pointer; transition: all 0.2s; }
-        .page-recal-btn:hover { background: var(--surface3); color: var(--text); }
-        .page-camera-container {
-          position: relative; border-radius: var(--radius); overflow: hidden; border: 2px solid;
-          transition: border-color 0.3s; margin-top: 0.5rem;
-          width: min(520px, 100%); max-width: 100%;
-          aspect-ratio: 4 / 3;
-          max-height: min(390px, 55dvh);
+        .nav-calib-chip {
+          display: inline-flex; align-items: center; gap: 0.35rem;
+          padding: 0.4rem 0.75rem; border-radius: 9999px;
+          background: #fff; color: var(--ios-midnight);
+          border: 1px solid var(--ios-border); font-size: 0.7rem; font-weight: 600;
+          box-shadow: 0 1px 2px rgba(15,23,41,0.04); text-decoration: none;
+          white-space: nowrap;
         }
-        .page-camera-ok      { border-color: var(--blue-soft); }
-        .page-camera-warning { border-color: var(--amber); }
-        .page-camera-danger  { border-color: var(--red); }
-        .page-camera-off     { border-color: var(--border); }
-        .page-placeholder { position: absolute; inset: 0; background: var(--surface2); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0.75rem; }
-        .page-placeholder-emoji { font-size: 3.5rem; }
-        .page-placeholder-text { color: var(--text-faint); font-size: 0.875rem; }
-        .page-video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); }
-        .page-canvas { position: absolute; inset: 0; width: 100%; height: 100%; transform: scaleX(-1); }
-        .page-state-pill { position: absolute; bottom: 0.75rem; left: 0.75rem; background: rgba(0, 0, 0, 0.6); border-radius: 9999px; padding: 0.25rem 0.75rem; font-size: 0.75rem; font-weight: 700; }
-        .page-pill-ok      { color: var(--blue-soft); }
-        .page-pill-warning { color: var(--amber); }
-        .page-pill-danger  { color: var(--red); }
-        .page-start-btn { margin-top: 0.75rem; padding: 0.5rem 2rem; border-radius: var(--radius-sm); background: var(--red); color: var(--text); border: none; font-size: 0.875rem; font-weight: 700; cursor: pointer; transition: all 0.2s; }
-        .page-start-btn:hover { background: #ff6b6b; }
-        .page-metrics { margin-top: 0.5rem; }
-        .page-hidden { display: none !important; }
+        .nav-calib-chip svg { width: 0.8rem; height: 0.8rem; }
+        .nav-calib-chip.calibrated { color: var(--ios-safe); border-color: rgba(16,185,129,0.35); }
+        .nav-calib-chip.pending    { color: var(--ios-warning); border-color: rgba(245,158,11,0.45); }
+
+        .nav-score-pill {
+          margin-left: auto; display: inline-flex; align-items: center; gap: 0.4rem;
+          padding: 0.4rem 0.75rem; border-radius: 9999px; color: #fff;
+          font-size: 0.7rem; font-weight: 600; white-space: nowrap;
+          box-shadow: 0 1px 2px rgba(15,23,41,0.08);
+        }
+        .nav-score-pill svg { width: 0.8rem; height: 0.8rem; }
+        .nav-score-pill.idle    { background: #64748b; }
+        .nav-score-pill.safe    { background: var(--ios-safe); }
+        .nav-score-pill.warning { background: var(--ios-warning); }
+        .nav-score-pill.danger  { background: var(--ios-danger); animation: iosPulse 1s ease-in-out infinite; }
+        .nav-score-label { opacity: 0.9; }
+        .nav-score-value { font-size: 0.78rem; font-weight: 700; }
+
+        /* Map layer — takes the remaining flex space */
+        .nav-map-layer {
+          flex: 1; position: relative; min-height: 280px;
+          margin: 0 0.625rem; border-radius: 1rem; overflow: hidden;
+          border: 1px solid var(--ios-border);
+          box-shadow: 0 6px 18px -8px rgba(15,23,41,0.15);
+        }
+        .nav-map-layer > * { position: absolute; inset: 0; width: 100%; height: 100%; }
+        .nav-map-loading {
+          position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+          gap: 0.5rem; font-size: 0.78rem; color: var(--ios-muted-foreground);
+          background: var(--ios-muted);
+        }
+        .nav-map-loading-dot {
+          width: 0.5rem; height: 0.5rem; border-radius: 9999px;
+          background: var(--ios-primary); animation: navPulse 1s ease-in-out infinite;
+        }
+        @keyframes navPulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+        @keyframes iosPulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.75; } }
+
+        /* Danger banner below header, above map */
+        .nav-alert {
+          margin: 0 0.625rem 0.5rem;
+          background: var(--ios-danger); color: #fff; border-radius: 0.875rem;
+          padding: 0.75rem 0.875rem; border: 1px solid rgba(255,255,255,0.3);
+          box-shadow: 0 10px 24px -10px rgba(239,68,68,0.45);
+          animation: iosPulse 1.2s ease-in-out infinite;
+        }
+        .nav-alert-row { display: flex; align-items: center; gap: 0.625rem; }
+        .nav-alert-icon-wrap {
+          width: 2rem; height: 2rem; border-radius: 9999px;
+          background: #fff; color: var(--ios-danger);
+          display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+        }
+        .nav-alert-icon-wrap svg { width: 1.1rem; height: 1.1rem; }
+        .nav-alert-title { font-weight: 600; font-size: 0.78rem; line-height: 1.2; }
+        .nav-alert-sub { font-size: 0.7rem; color: rgba(255,255,255,0.9); line-height: 1.3; }
+
+        .nav-error {
+          margin: 0 0.625rem 0.5rem; padding: 0.5rem 0.75rem;
+          background: rgba(239,68,68,0.1); color: #b91c1c;
+          border: 1px solid rgba(239,68,68,0.25); border-radius: 0.75rem;
+          font-size: 0.72rem;
+        }
+
+        /* Camera PiP — bottom-left of the map, floats over but below map bar */
+        .nav-pip {
+          position: absolute;
+          left: 0.75rem; bottom: 0.75rem;
+          width: 7.5rem; height: 10rem;
+          border-radius: 0.875rem; overflow: hidden;
+          background: #0f1729; color: #fff;
+          border: 2px solid #fff;
+          box-shadow: 0 12px 28px -10px rgba(15,23,41,0.55);
+          z-index: 5;
+          display: flex; flex-direction: column;
+        }
+        .nav-pip-hidden { display: none !important; }
+        .nav-pip video { flex: 1; width: 100%; object-fit: cover; transform: scaleX(-1); }
+        .nav-pip canvas { position: absolute; inset: 0; width: 100%; height: 100%; transform: scaleX(-1); pointer-events: none; }
+        .nav-pip-empty { flex: 1; display: flex; align-items: center; justify-content: center; padding: 0.5rem; text-align: center; font-size: 0.62rem; color: rgba(255,255,255,0.75); line-height: 1.3; }
+        .nav-pip-footer {
+          display: flex; align-items: center; justify-content: space-between;
+          gap: 0.25rem; padding: 0.25rem 0.4rem;
+          background: rgba(15,23,41,0.85);
+          font-size: 0.58rem;
+        }
+        .nav-pip-dot {
+          width: 0.4rem; height: 0.4rem; border-radius: 9999px; flex-shrink: 0;
+          background: #64748b;
+        }
+        .nav-pip-dot.safe { background: var(--ios-safe); animation: iosPulse 2s ease-in-out infinite; }
+        .nav-pip-dot.warning { background: var(--ios-warning); animation: iosPulse 1.4s ease-in-out infinite; }
+        .nav-pip-dot.danger { background: var(--ios-danger); animation: iosPulse 0.8s ease-in-out infinite; }
+        .nav-pip-label { flex: 1; text-align: center; font-weight: 600; letter-spacing: 0.02em; text-transform: uppercase; }
+        .nav-pip-close {
+          background: transparent; border: none; color: rgba(255,255,255,0.7);
+          font-size: 0.75rem; line-height: 1; padding: 0 0.15rem; cursor: pointer;
+        }
+
+        .nav-pip-reopen {
+          position: absolute; left: 0.75rem; bottom: 0.75rem; z-index: 5;
+          display: inline-flex; align-items: center; gap: 0.35rem;
+          padding: 0.5rem 0.75rem; border-radius: 9999px;
+          background: rgba(15,23,41,0.85); color: #fff;
+          font-size: 0.65rem; font-weight: 600;
+          border: 1px solid rgba(255,255,255,0.25);
+          backdrop-filter: blur(8px);
+          cursor: pointer;
+        }
+        .nav-pip-reopen svg { width: 0.75rem; height: 0.75rem; }
+
+        /* Bottom action bar — start/stop monitor + full-screen link */
+        .nav-cta-wrap {
+          padding: 0.625rem 0.625rem 0.25rem;
+          display: flex; gap: 0.5rem;
+        }
+        .nav-cta {
+          flex: 1;
+          display: flex; align-items: center; justify-content: center; gap: 0.4rem;
+          border-radius: 9999px; padding: 0.75rem 1rem; font-weight: 600; font-size: 0.82rem;
+          text-decoration: none; border: none; cursor: pointer; font-family: inherit;
+        }
+        .nav-cta svg { width: 0.9rem; height: 0.9rem; }
+        .nav-cta.primary {
+          background: var(--ios-midnight); color: #fff;
+          box-shadow: 0 8px 20px -8px rgba(15,23,41,0.4);
+        }
+        .nav-cta.stop {
+          background: var(--ios-danger); color: #fff;
+          box-shadow: 0 8px 20px -8px rgba(239,68,68,0.4);
+        }
+        .nav-cta.ghost {
+          background: #fff; color: var(--ios-midnight);
+          border: 1px solid var(--ios-border);
+        }
       `}</style>
-      <main className="page-main">
-        <div className="page-header">
-          <h1 className="page-title">BlinkGuard</h1>
-          <Link href="/monitor" className="page-dash-link">
-            Full dashboard →
-          </Link>
-          <div className="page-header-status">
-            <div className="page-status-text">
-              {isStarted
-                ? faceDetected ? '🟢 Face' : '🔴 No face'
-                : '⚫ Off'}
+
+      <div className="ios-app">
+        <div className="nav-screen">
+          {/* Compact header row */}
+          <div className="nav-header">
+            <Link
+              href="/calibrate"
+              className={`nav-calib-chip ${calibrated ? 'calibrated' : 'pending'}`}
+            >
+              <CalibIcon />
+              {calibrated ? 'Calibrated' : 'Calibrate'}
+            </Link>
+
+            <div className={`nav-score-pill ${statusClass}`}>
+              {monitoring && drowsinessState !== 'awake' ? <EyeOffIcon /> : <EyeIcon />}
+              <span className="nav-score-label">Live</span>
+              <span className="nav-score-value">{statusText}</span>
+              {monitoring && (
+                <span className="nav-score-label">· {blinkRate}/min</span>
+              )}
             </div>
-            {isStarted && (
+          </div>
+
+          {showDanger && (
+            <div className="nav-alert" role="alert">
+              <div className="nav-alert-row">
+                <div className="nav-alert-icon-wrap"><AlertIcon /></div>
+                <div style={{ flex: 1 }}>
+                  <p className="nav-alert-title">Eyes closing — pull over safely</p>
+                  <p className="nav-alert-sub">
+                    {alertCount > 0 ? `${alertCount} alert${alertCount === 1 ? '' : 's'} this drive` : 'Fatigue detected'}
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {detectorError && (
+            <div className="nav-error">{detectorError}</div>
+          )}
+
+          {/* Map + camera PiP layer — both run concurrently */}
+          <div className="nav-map-layer">
+            <GoogleNavigationMap drowsinessState={drowsinessState} />
+
+            {/* The video+canvas must be mounted at all times so the detector
+                hook can attach the MediaStream. We just hide the PiP shell
+                when monitoring is off or the user collapsed it. */}
+            <div className={`nav-pip ${monitoring && showTile ? '' : 'nav-pip-hidden'}`}>
+              <video ref={videoRef} autoPlay muted playsInline />
+              <canvas ref={canvasRef} />
+              <div className="nav-pip-footer">
+                <div className={`nav-pip-dot ${statusClass}`} />
+                <span className="nav-pip-label">{faceDetected ? 'Tracking' : 'No face'}</span>
+                <button
+                  type="button"
+                  className="nav-pip-close"
+                  onClick={() => setShowTile(false)}
+                  aria-label="Hide camera preview"
+                >
+                  ×
+                </button>
+              </div>
+            </div>
+
+            {monitoring && !showTile && (
               <button
-                onClick={() => {
-                  setIsStarted(false);
-                  setNeedsCalibration(true);
-                }}
-                className="page-recal-btn"
+                type="button"
+                className="nav-pip-reopen"
+                onClick={() => setShowTile(true)}
               >
-                Recalibrate
+                <CameraIcon /> Show camera
               </button>
             )}
           </div>
-        </div>
 
-        <div className={`page-camera-container page-camera-${
-          drowsinessState === 'danger'  ? 'danger' :
-          drowsinessState === 'warning' ? 'warning' :
-          isStarted && faceDetected ? 'ok' : 'off'
-        }`}>
-          {!isStarted && (
-            <div className="page-placeholder">
-              <span className="page-placeholder-emoji">🚗</span>
-              <p className="page-placeholder-text">Click Start to begin</p>
-            </div>
-          )}
-
-          <video
-            ref={videoRef}
-            autoPlay muted playsInline
-            className={`page-video ${!isStarted ? 'page-hidden' : ''}`}
-          />
-
-          <canvas
-            ref={canvasRef}
-            className={`page-canvas ${!isStarted ? 'page-hidden' : ''}`}
-          />
-
-          {isStarted && (
-            <div className={`page-state-pill page-pill-${drowsinessState}`}>
-              {drowsinessState === 'awake'   && '👁 AWAKE'}
-              {drowsinessState === 'warning' && '⚠️ DROWSY'}
-              {drowsinessState === 'danger'  && '🚨 DANGER'}
-            </div>
-          )}
-        </div>
-
-        {!isStarted && (
-          <button onClick={startCamera} className="page-start-btn">
-            🚀 Start Monitoring
-          </button>
-        )}
-
-        {isStarted && (
-          <div className="page-metrics">
-            <StatusPanel
-              ear={ear}
-              closedFrames={closedFrames}
-              drowsinessState={drowsinessState}
-              faceDetected={faceDetected}
-              alertCount={alertCount}
-              sessionTime={sessionTime}
-            />
+          <div className="nav-cta-wrap">
+            {!monitoring ? (
+              <button
+                type="button"
+                className="nav-cta primary"
+                onClick={() => void startMonitor()}
+              >
+                <CameraIcon /> Start monitoring
+              </button>
+            ) : (
+              <button
+                type="button"
+                className="nav-cta stop"
+                onClick={stopMonitor}
+              >
+                <StopIcon /> Stop monitoring
+              </button>
+            )}
+            <Link href="/monitor" className="nav-cta ghost">
+              Full view →
+            </Link>
           </div>
-        )}
+        </div>
 
-        <AlertBanner drowsinessState={drowsinessState} />
-
-      </main>
+        <BottomNav />
+      </div>
     </>
   );
 }

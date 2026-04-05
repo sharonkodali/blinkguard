@@ -130,6 +130,7 @@ export function saveCalibrationData(calibData: CalibrationData) {
       thresholds,
       timestamp: Date.now(),
     }));
+    notifyCalibrationChanged();
   }
 }
 
@@ -153,6 +154,42 @@ export function hasCalibration() {
   if (typeof window !== 'undefined') {
     return localStorage.getItem('blinkguard_calibration') !== null;
   }
+  return false;
+}
+
+// ─── Calibration subscription (for useSyncExternalStore) ─────────────────────
+// Pages use this to render calibration status without SSR hydration mismatches.
+// Server snapshot is always `false`; client re-reads post-hydration and updates
+// when the user calibrates/recalibrates in another tab or returns to this one.
+type Listener = () => void;
+const calibrationListeners = new Set<Listener>();
+
+export function notifyCalibrationChanged() {
+  calibrationListeners.forEach((l) => l());
+}
+
+export function subscribeCalibration(callback: Listener) {
+  if (typeof window === 'undefined') return () => {};
+  calibrationListeners.add(callback);
+  const onStorage = (e: StorageEvent) => {
+    if (e.key === 'blinkguard_calibration' || e.key === null) callback();
+  };
+  window.addEventListener('storage', onStorage);
+  window.addEventListener('focus', callback);
+  document.addEventListener('visibilitychange', callback);
+  return () => {
+    calibrationListeners.delete(callback);
+    window.removeEventListener('storage', onStorage);
+    window.removeEventListener('focus', callback);
+    document.removeEventListener('visibilitychange', callback);
+  };
+}
+
+export function getCalibrationSnapshot(): boolean {
+  return hasCalibration();
+}
+
+export function getCalibrationServerSnapshot(): boolean {
   return false;
 }
 
