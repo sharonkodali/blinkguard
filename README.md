@@ -1,5 +1,9 @@
 # BlinkGuard
 
+[![CI](https://github.com/sharonkodali/blinkguard/actions/workflows/ci.yml/badge.svg)](https://github.com/sharonkodali/blinkguard/actions/workflows/ci.yml)
+
+<img src="docs/landing.png" alt="BlinkGuard landing screen" width="260" align="right">
+
 **Real-time drowsy-driving detection in the browser, with an AI safety agent that escalates alerts.**
 
 [Live demo](https://blinkguard-one.vercel.app)
@@ -17,6 +21,8 @@ BlinkGuard watches the driver through the webcam, tracks eye and mouth landmarks
 ## Tech stack
 
 Next.js 16, React 19, TypeScript, Tailwind · MediaPipe Face Mesh · Python + Fetch.ai uAgents · Vercel
+
+<br clear="right">
 
 ## Run locally
 
@@ -87,7 +93,20 @@ flip from "Mock mode" to "Fetch.ai live" within ~2 seconds.
 | Decision logic | ✅ runs inside the orchestrator | same logic ported to TS as fallback |
 | Predictive fatigue | ✅ linear-regression over closed-frame window | — |
 
-### Future improvements
+## Tests
+
+CI runs lint, typecheck, unit tests and a production build on every push and pull request.
+
+```bash
+npm test                      # Vitest: EAR/MAR, thresholds, calibration, TS decision logic
+cd agents && pip install -r requirements-dev.txt && pytest   # agent decision logic
+```
+
+- [`lib/drowsiness.test.ts`](lib/drowsiness.test.ts) builds synthetic face-mesh landmarks to check EAR/MAR math, head-pose adjustments, warning/danger frame thresholds, and calibration.
+- [`lib/safety-logic.test.ts`](lib/safety-logic.test.ts) and [`agents/tests/test_logic.py`](agents/tests/test_logic.py) cover alert escalation, incident debouncing, trip score, and the linear-regression fatigue prediction.
+- Both suites replay [`fixtures/safety-scenarios.json`](fixtures/safety-scenarios.json), so the TypeScript fallback and the Python agent must make the same decisions.
+
+## Future improvements
 
 - Move session memory from in-process to Redis / a uAgents storage backend.
 - Real inter-agent messaging: have AlertAgent push to a driver's phone / SMS endpoint,
