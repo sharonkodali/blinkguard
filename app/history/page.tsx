@@ -1,7 +1,17 @@
 'use client';
-import { useEffect, useState } from 'react';
+import { useMemo, useSyncExternalStore } from 'react';
 import InsightsSummary from '@/components/InsightsSummary';
-import { formatSessionDate, formatDuration, type SessionData } from '@/lib/sessions';
+import {
+  formatSessionDate,
+  formatDuration,
+  getSessionsSnapshot,
+  subscribeSessions,
+  type SessionData,
+} from '@/lib/sessions';
+
+// Server render has no localStorage: return null so the page shows "Loading"
+// until the client snapshot takes over after hydration.
+const getServerSnapshot = (): SessionData[] | null => null;
 
 const statusLabel: Record<string, string> = {
   awake: 'Awake',
@@ -10,17 +20,16 @@ const statusLabel: Record<string, string> = {
 };
 
 export default function History() {
-  const [sessions, setSessions] = useState<SessionData[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
-    
-    const stored = localStorage.getItem('blinkguard_sessions');
-    const data = stored ? JSON.parse(stored) : [];
-    setSessions(data.sort((a: SessionData, b: SessionData) => b.startTime - a.startTime));
-    setLoading(false);
-  }, []);
+  const stored = useSyncExternalStore<SessionData[] | null>(
+    subscribeSessions,
+    getSessionsSnapshot,
+    getServerSnapshot,
+  );
+  const loading = stored === null;
+  const sessions = useMemo(
+    () => [...(stored ?? [])].sort((a, b) => b.startTime - a.startTime),
+    [stored],
+  );
 
   const getStatus = (alerts: number): string => {
     if (alerts === 0) return 'awake';
