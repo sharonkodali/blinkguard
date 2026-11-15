@@ -666,7 +666,7 @@ function GoogleNavigationInner({ drowsinessState, onRouteMetaChange, apiKey }: P
         {arrived && (
           <div className="gnw-arrived">
             <div className="gnw-arrived-pin">📍</div>
-            <h2 className="gnw-arrived-title">You've arrived</h2>
+            <h2 className="gnw-arrived-title">You&apos;ve arrived</h2>
             <p className="gnw-arrived-sub">You have reached your destination. Drive safely.</p>
             <button type="button" className="gnw-arrived-done" onClick={clearRoute}>Done</button>
           </div>

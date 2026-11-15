@@ -292,7 +292,7 @@ export default function Landing() {
             <h2 className="lp-section-lead">Drowsy driving is a quiet epidemic.</h2>
             <p className="lp-section-sub">
               Fatigue impairs reaction time and judgment as severely as alcohol — but
-              nobody gets pulled over for it. BlinkGuard turns your phone's camera
+              nobody gets pulled over for it. BlinkGuard turns your phone&apos;s camera
               into an always-on fatigue monitor.
             </p>
           </section>
@@ -308,7 +308,7 @@ export default function Landing() {
 
           {/* Features */}
           <section className="lp-section">
-            <div className="lp-section-title">What's inside</div>
+            <div className="lp-section-title">What&apos;s inside</div>
             <h2 className="lp-section-lead">Four surfaces, one safety loop.</h2>
           </section>
           <div className="lp-feature-grid">

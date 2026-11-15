@@ -1,0 +1,204 @@
+{
+  "_comment": "Shared telemetry scenarios. lib/safety-logic.test.ts and agents/tests/test_logic.py both replay these and must reach the same decision, which keeps the TypeScript fallback and the Python agent in lockstep. Event fields: t = ms offset from a fixed base timestamp, closed = closed_frames, blink = blink_rate (optional).",
+  "scenarios": [
+    {
+      "name": "alert driver",
+      "events": [
+        {
+          "t": 0,
+          "state": "awake",
+          "closed": 0
+        },
+        {
+          "t": 2000,
+          "state": "awake",
+          "closed": 1
+        },
+        {
+          "t": 4000,
+          "state": "awake",
+          "closed": 0
+        },
+        {
+          "t": 6000,
+          "state": "awake",
+          "closed": 0
+        }
+      ],
+      "expected": {
+        "alertLevel": "none",
+        "tripScore": 100,
+        "predictedRisk": 0,
+        "predictedTrend": "stable",
+        "incidentReasons": []
+      }
+    },
+    {
+      "name": "single danger event",
+      "events": [
+        {
+          "t": 0,
+          "state": "danger",
+          "closed": 40
+        }
+      ],
+      "expected": {
+        "alertLevel": "critical",
+        "tripScore": 82,
+        "predictedRisk": 0,
+        "predictedTrend": "stable",
+        "incidentReasons": [
+          "sustained_closed_eyes"
+        ]
+      }
+    },
+    {
+      "name": "fatigue building into danger (danger debounced)",
+      "events": [
+        {
+          "t": 0,
+          "state": "awake",
+          "closed": 2
+        },
+        {
+          "t": 2000,
+          "state": "warning",
+          "closed": 16
+        },
+        {
+          "t": 4000,
+          "state": "warning",
+          "closed": 22
+        },
+        {
+          "t": 6000,
+          "state": "warning",
+          "closed": 28
+        },
+        {
+          "t": 8000,
+          "state": "danger",
+          "closed": 36
+        }
+      ],
+      "expected": {
+        "alertLevel": "critical",
+        "tripScore": 92,
+        "predictedRisk": 1,
+        "predictedTrend": "critical",
+        "incidentReasons": [
+          "prolonged_blink"
+        ]
+      }
+    },
+    {
+      "name": "recovering driver",
+      "events": [
+        {
+          "t": 0,
+          "state": "warning",
+          "closed": 18
+        },
+        {
+          "t": 2000,
+          "state": "awake",
+          "closed": 10
+        },
+        {
+          "t": 4000,
+          "state": "awake",
+          "closed": 5
+        },
+        {
+          "t": 6000,
+          "state": "awake",
+          "closed": 1
+        }
+      ],
+      "expected": {
+        "alertLevel": "none",
+        "tripScore": 100,
+        "predictedRisk": 0,
+        "predictedTrend": "improving",
+        "incidentReasons": []
+      }
+    },
+    {
+      "name": "low blink rate with open eyes",
+      "events": [
+        {
+          "t": 0,
+          "state": "awake",
+          "closed": 0,
+          "blink": 6
+        },
+        {
+          "t": 2000,
+          "state": "awake",
+          "closed": 0,
+          "blink": 6
+        },
+        {
+          "t": 4000,
+          "state": "awake",
+          "closed": 0,
+          "blink": 6
+        },
+        {
+          "t": 6000,
+          "state": "awake",
+          "closed": 0,
+          "blink": 6
+        },
+        {
+          "t": 8000,
+          "state": "awake",
+          "closed": 0,
+          "blink": 6
+        }
+      ],
+      "expected": {
+        "alertLevel": "gentle",
+        "tripScore": 100,
+        "predictedRisk": 0.75,
+        "predictedTrend": "rising",
+        "incidentReasons": []
+      }
+    },
+    {
+      "name": "repeated danger with debounce",
+      "events": [
+        {
+          "t": 0,
+          "state": "danger",
+          "closed": 40
+        },
+        {
+          "t": 1000,
+          "state": "danger",
+          "closed": 41
+        },
+        {
+          "t": 2000,
+          "state": "danger",
+          "closed": 42
+        },
+        {
+          "t": 5000,
+          "state": "danger",
+          "closed": 43
+        }
+      ],
+      "expected": {
+        "alertLevel": "critical",
+        "tripScore": 64,
+        "predictedRisk": 1,
+        "predictedTrend": "critical",
+        "incidentReasons": [
+          "sustained_closed_eyes",
+          "sustained_closed_eyes"
+        ]
+      }
+    }
+  ]
+}
